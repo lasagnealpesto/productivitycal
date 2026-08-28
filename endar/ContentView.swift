@@ -2,7 +2,6 @@ import SwiftUI
 import Combine
 import UserNotifications
 import UIKit
-import StoreKit
 
 extension Color {
     init(hex: UInt32, alpha: Double = 1.0) {
@@ -1077,7 +1076,6 @@ private struct SetView: View {
     @AppStorage("wallpaper.device.v1") private var wallpaperDeviceRaw: String = iPhoneModel.iphone17.storageValue
     @AppStorage("wallpaper.device.userSelected.v1") private var wallpaperDeviceUserSelected = false
     @AppStorage("wallpaper.dotShape.v1") private var wallpaperDotShapeRaw: String = WallpaperDotShapeOption.squircle.rawValue
-    @AppStorage(PremiumAccess.storageKey) private var hasPremiumAccess = false
     @Binding var themeRaw: String
 
     let palette: AppPalette
@@ -1085,9 +1083,6 @@ private struct SetView: View {
     @State private var model: iPhoneModel = .iphone17
     @State private var dotShape: WallpaperDotShapeOption = .squircle
     @State private var showWallpaperGuide = false
-    @State private var isPurchasingPremium = false
-    @State private var showPremiumPurchaseError = false
-    @State private var premiumPurchaseErrorMessage: String = ""
     @State private var selectedPremiumSetupStep = 0
     @State private var isShowingSetupInstructions = false
 
@@ -1097,52 +1092,46 @@ private struct SetView: View {
 
     var body: some View {
         NavigationStack {
-            if hasPremiumAccess {
-                ZStack {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            Spacer()
+            ZStack {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Spacer()
 
-                            ThemeToggle(themeRaw: $themeRaw, palette: palette)
+                        ThemeToggle(themeRaw: $themeRaw, palette: palette)
+                    }
+
+                    wallpaperModelSelection
+                    wallpaperControls
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 24)
+                .padding(.bottom, 24)
+                .background(BackgroundView(palette: palette))
+
+                if isShowingSetupInstructions {
+                    Color.black.opacity(0.34)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                isShowingSetupInstructions = false
+                            }
                         }
 
-                        wallpaperModelSelection
-                        wallpaperControls
-
-                        Spacer(minLength: 0)
-                    }
+                    PremiumSetupOverlayCard(
+                        palette: palette,
+                        selectedStep: $selectedPremiumSetupStep,
+                        steps: PremiumSetupGuideContent.steps
+                    )
                     .padding(.horizontal, 16)
-                    .padding(.top, 24)
-                    .padding(.bottom, 24)
-                    .background(BackgroundView(palette: palette))
-
-                    if isShowingSetupInstructions {
-                        Color.black.opacity(0.34)
-                            .ignoresSafeArea()
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(.easeInOut(duration: 0.22)) {
-                                    isShowingSetupInstructions = false
-                                }
-                            }
-
-                        PremiumSetupOverlayCard(
-                            palette: palette,
-                            selectedStep: $selectedPremiumSetupStep,
-                            steps: PremiumSetupGuideContent.steps
-                        )
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 36)
-                        .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
-                    }
+                    .padding(.vertical, 36)
+                    .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
                 }
-            } else {
-                premiumLockedContent
             }
         }
         .onAppear {
-            guard hasPremiumAccess else { return }
-
             isShowingSetupInstructions = false
             wallpaperPeriodRaw = "Year"
             if wallpaperDeviceUserSelected, let restored = iPhoneModel.fromStorage(wallpaperDeviceRaw) {
@@ -1164,11 +1153,6 @@ private struct SetView: View {
         }
         .sheet(isPresented: $showWallpaperGuide) {
             WallpaperAutomationGuideView()
-        }
-        .alert("purchase failed", isPresented: $showPremiumPurchaseError) {
-            Button("ok", role: .cancel) {}
-        } message: {
-            Text(premiumPurchaseErrorMessage)
         }
     }
 
@@ -1269,131 +1253,6 @@ private struct SetView: View {
                 )
         }
         .buttonStyle(.plain)
-    }
-
-    private var premiumLockedSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("premium required")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(palette.textPrimary)
-
-            Text("wallpaper automation is available only with premium.")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(palette.textSecondary)
-
-            Button {
-                Task {
-                    await purchasePremium()
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    if isPurchasingPremium {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(palette.background)
-                    }
-                    Text(isPurchasingPremium ? "processing..." : "passa a premium")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(palette.background)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(palette.textPrimary)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(isPurchasingPremium)
-            .opacity(isPurchasingPremium ? 0.85 : 1.0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(premiumLockedCardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(palette.border.opacity(0.95), lineWidth: 1)
-        )
-    }
-
-    private var premiumLockedContent: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack {
-                Spacer(minLength: 0)
-
-                premiumLockedSection
-                    .frame(maxWidth: 520)
-
-                Spacer(minLength: 0)
-            }
-
-            ThemeToggle(themeRaw: $themeRaw, palette: palette)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 24)
-        .padding(.bottom, 24)
-        .background(BackgroundView(palette: palette))
-    }
-
-    @ViewBuilder
-    private var premiumLockedCardBackground: some View {
-        if #available(iOS 26.0, *) {
-            Color.clear
-                .glassEffect(
-                    .regular.tint(palette.surface.opacity(0.34)),
-                    in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-                )
-        } else {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.ultraThinMaterial)
-        }
-    }
-
-    @MainActor
-    private func purchasePremium() async {
-        guard !isPurchasingPremium else { return }
-        isPurchasingPremium = true
-        defer { isPurchasingPremium = false }
-
-        do {
-            let products = try await Product.products(for: [PremiumAccess.productID])
-            guard let product = products.first else {
-                throw NSError(
-                    domain: "endar.iap",
-                    code: 404,
-                    userInfo: [NSLocalizedDescriptionKey: "Premium product not found. Check App Store product ID."]
-                )
-            }
-
-            let purchaseResult = try await product.purchase()
-            switch purchaseResult {
-            case .success(let verificationResult):
-                let transaction = try verifiedTransaction(from: verificationResult)
-                hasPremiumAccess = true
-                isShowingSetupInstructions = false
-                await transaction.finish()
-            case .userCancelled, .pending:
-                break
-            @unknown default:
-                break
-            }
-        } catch {
-            premiumPurchaseErrorMessage = error.localizedDescription
-            showPremiumPurchaseError = true
-        }
-    }
-
-    private func verifiedTransaction(from result: VerificationResult<StoreKit.Transaction>) throws -> StoreKit.Transaction {
-        switch result {
-        case .verified(let transaction):
-            return transaction
-        case .unverified:
-            throw NSError(
-                domain: "endar.iap",
-                code: 498,
-                userInfo: [NSLocalizedDescriptionKey: "Unable to verify purchase transaction."]
-            )
-        }
     }
 }
 

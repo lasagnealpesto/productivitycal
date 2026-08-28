@@ -18,8 +18,6 @@ import GoogleSignIn
 @main
 struct endarApp: App {
     init() {
-        PremiumAccess.configureLocalTestingAccessIfNeeded()
-
         #if canImport(UIKit)
         // Make segmented pickers match the floating tab bar vibe: subtle selected pill + accent-colored selected label.
         let control = UISegmentedControl.appearance()
