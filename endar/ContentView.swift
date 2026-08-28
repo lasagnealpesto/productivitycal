@@ -14,6 +14,20 @@ extension Color {
     static let appAccent = Color(hex: 0xFF5C00)
 }
 
+enum Haptics {
+    static func light() {
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+    }
+
+    static func success() {
+        #if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+    }
+}
+
 enum AppTheme: String, CaseIterable, Identifiable {
     case dark
     case light
@@ -202,6 +216,24 @@ final class MoodStore: ObservableObject {
         setMood(next, for: date)
     }
 
+    func currentStreak(asOf referenceDate: Date = Date()) -> Int {
+        var cursor = calendar.startOfDay(for: referenceDate)
+
+        if mood(for: cursor) == nil {
+            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: cursor) else { return 0 }
+            cursor = yesterday
+        }
+
+        var streak = 0
+        while mood(for: cursor) != nil {
+            streak += 1
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = previous
+        }
+
+        return streak
+    }
+
     private func key(for date: Date) -> String {
         Self.keyFormatter.string(from: calendar.startOfDay(for: date))
     }
@@ -242,10 +274,8 @@ final class DailyMoodNotificationScheduler {
     private let calendar = Calendar.current
     private let bodyText = "how was your day?"
     private let reminderHour = 18
-    private let dailyHour = 16
     private let horizonDays = 21
     private let moodStorageKey = "moodStore.v1"
-    private let fourPMPrefix = "endar.daily.1600."
     private let sixPMPrefix = "endar.daily.1800."
     private var hasConfigured = false
 
@@ -287,7 +317,7 @@ final class DailyMoodNotificationScheduler {
 
                 let managedIds = requests
                     .map(\.identifier)
-                    .filter { $0.hasPrefix(self.fourPMPrefix) || $0.hasPrefix(self.sixPMPrefix) }
+                    .filter { $0.hasPrefix(self.sixPMPrefix) }
                 if !managedIds.isEmpty {
                     self.center.removePendingNotificationRequests(withIdentifiers: managedIds)
                 }
@@ -303,7 +333,6 @@ final class DailyMoodNotificationScheduler {
 
         for offset in 0..<horizonDays {
             guard let day = calendar.date(byAdding: .day, value: offset, to: todayStart) else { continue }
-            scheduleNotification(hour: dailyHour, for: day, prefix: fourPMPrefix)
 
             let isToday = calendar.isDate(day, inSameDayAs: now)
             if !isToday || !hasMoodSelected(on: day) {
@@ -362,8 +391,7 @@ private struct HomeView: View {
     private let today = Date()
     @State private var showConfirmAction = false
     @State private var pendingAccountAction: AccountAction?
-
-    // (moved to file scope)
+    @State private var showStreakCelebration = false
 
     var body: some View {
         NavigationStack {
@@ -382,9 +410,18 @@ private struct HomeView: View {
                 Spacer(minLength: 20)
 
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("how was your day?")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(palette.textPrimary)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("how was your day?")
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(palette.textPrimary)
+
+                        Spacer()
+
+                        let streak = moodStore.currentStreak(asOf: today)
+                        if streak > 0 {
+                            StreakBadge(streak: streak, palette: palette, isCelebrating: showStreakCelebration)
+                        }
+                    }
 
                     ForEach(Mood.allCases) { mood in
                         MoodOptionCard(
@@ -392,7 +429,7 @@ private struct HomeView: View {
                             isSelected: moodStore.mood(for: today) == mood,
                             palette: palette
                         ) {
-                            moodStore.setMood(mood, for: today)
+                            selectMood(mood)
                         }
                     }
                 }
@@ -423,6 +460,53 @@ private struct HomeView: View {
                 Text(action.confirmMessage)
             }
         }
+    }
+
+    private func selectMood(_ mood: Mood) {
+        let isFirstSetToday = moodStore.mood(for: today) == nil
+        moodStore.setMood(mood, for: today)
+
+        if isFirstSetToday {
+            Haptics.success()
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                showStreakCelebration = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    showStreakCelebration = false
+                }
+            }
+        } else {
+            Haptics.light()
+        }
+    }
+}
+
+private struct StreakBadge: View {
+    let streak: Int
+    let palette: AppPalette
+    var isCelebrating = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "flame.fill")
+                .foregroundStyle(Color(hex: 0xFF5C00))
+            Text("\(streak) day\(streak == 1 ? "" : "s")")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(palette.textPrimary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(palette.surface)
+        )
+        .overlay(
+            Capsule()
+                .stroke(palette.border, lineWidth: 1)
+        )
+        .scaleEffect(isCelebrating ? 1.16 : 1.0)
+        .accessibilityLabel("\(streak) day streak")
     }
 }
 
@@ -803,6 +887,7 @@ private struct CalendarDayCell: View {
         Menu {
             ForEach(Mood.allCases) { option in
                 Button {
+                    Haptics.light()
                     onSelect(option)
                 } label: {
                     Label(option.title, systemImage: option.systemImage)
@@ -810,6 +895,7 @@ private struct CalendarDayCell: View {
             }
 
             Button {
+                Haptics.light()
                 onSelect(nil)
             } label: {
                 Label("blank", systemImage: "circle")
@@ -1098,6 +1184,8 @@ private struct SetView: View {
     @State private var model: iPhoneModel = .iphone17
     @State private var dotShape: WallpaperDotShapeOption = .squircle
     @State private var showWallpaperGuide = false
+    @State private var shareURL: URL?
+    @State private var shareImage: UIImage?
 
     private var theme: AppTheme {
         AppTheme(rawValue: themeRaw) ?? .dark
@@ -1134,15 +1222,36 @@ private struct SetView: View {
             }
 
             dotShape = WallpaperDotShapeOption.fromStorage(wallpaperDotShapeRaw)
+            refreshShareImage()
         }
         .onChange(of: model) { _, newValue in
             wallpaperDeviceRaw = newValue.storageValue
+            refreshShareImage()
         }
         .onChange(of: dotShape) { _, newValue in
             wallpaperDotShapeRaw = newValue.rawValue
+            refreshShareImage()
         }
         .sheet(isPresented: $showWallpaperGuide) {
             WallpaperAutomationGuideView()
+        }
+    }
+
+    private func refreshShareImage() {
+        guard let image = try? renderShareableWallpaperImage(), let data = image.pngData() else {
+            shareURL = nil
+            shareImage = nil
+            return
+        }
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("my-year.png")
+        do {
+            try data.write(to: url, options: [.atomic])
+            shareURL = url
+            shareImage = image
+        } catch {
+            shareURL = nil
+            shareImage = nil
         }
     }
 
@@ -1230,6 +1339,7 @@ private struct SetView: View {
         }
 
         Button {
+            Haptics.light()
             showWallpaperGuide = true
         } label: {
             Text("set wallpaper")
@@ -1243,6 +1353,31 @@ private struct SetView: View {
                 )
         }
         .buttonStyle(.plain)
+
+        if let shareURL, let shareImage {
+            ShareLink(
+                item: shareURL,
+                preview: SharePreview("my year", image: Image(uiImage: shareImage))
+            ) {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.and.arrow.up")
+                    Text("share my year")
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(palette.textPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(palette.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(palette.border, lineWidth: 1)
+                )
+            }
+            .simultaneousGesture(TapGesture().onEnded { Haptics.light() })
+        }
     }
 }
 

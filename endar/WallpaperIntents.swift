@@ -202,6 +202,24 @@ struct GenerateEndarWallpaperIntent: AppIntent {
     }
 }
 
+// MARK: - Shareable Preview (Set Tab "share my year")
+
+/// Renders the same wallpaper image used by the automation, for the in-app "share my year" button.
+@MainActor
+func renderShareableWallpaperImage() throws -> UIImage {
+    let resolved = WallpaperResolvedSettings.resolve()
+    let calendar = Calendar.current
+    let today = Date()
+    let summary = WallpaperPeriodSummary.make(period: resolved.period, today: today, calendar: calendar)
+    let moodData = WallpaperMoodData.load()
+    return try WallpaperImageRenderer.render(
+        canvasSize: resolved.canvasSize,
+        summary: summary,
+        includeProgress: true,
+        moodData: moodData
+    )
+}
+
 // MARK: Generate Wallpaper (Save File + Return Path)
 
 /// This variant exists for Shortcuts automations that want to:
