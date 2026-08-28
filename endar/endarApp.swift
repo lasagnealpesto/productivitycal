@@ -456,6 +456,11 @@ private struct LoginView: View {
                             .frame(width: 20, height: 20)
                     }
                     .disabled(isGoogleSigningIn)
+
+                    Link("privacy policy", destination: URL(string: "https://lasagnealpesto.github.io/productivitycal/privacy-policy.html")!)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .padding(.top, 6)
                 }
                 .frame(maxWidth: maxContentWidth)
                 .padding(.horizontal, 16)
