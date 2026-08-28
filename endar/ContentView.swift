@@ -14,6 +14,17 @@ extension Color {
     static let appAccent = Color(hex: 0xFF5C00)
 }
 
+/// Storage shared with the (not-yet-added) home screen widget via an App Group.
+/// Falls back to `.standard` until the "group.com.productivitycal.productivitycal"
+/// App Group is added to this target's entitlements, so this is safe to ship before that.
+enum SharedStorage {
+    static let appGroupID = "group.com.productivitycal.productivitycal"
+
+    static var defaults: UserDefaults {
+        UserDefaults(suiteName: appGroupID) ?? .standard
+    }
+}
+
 enum Haptics {
     static func light() {
         #if canImport(UIKit)
@@ -239,7 +250,7 @@ final class MoodStore: ObservableObject {
     }
 
     private func load() {
-        guard let data = UserDefaults.standard.data(forKey: storageKey) else { return }
+        guard let data = SharedStorage.defaults.data(forKey: storageKey) else { return }
         guard let decoded = try? JSONDecoder().decode([String: String].self, from: data) else { return }
 
         var mapped: [String: Mood] = [:]
@@ -254,7 +265,7 @@ final class MoodStore: ObservableObject {
     private func save() {
         let encoded = moods.mapValues { $0.rawValue }
         guard let data = try? JSONEncoder().encode(encoded) else { return }
-        UserDefaults.standard.set(data, forKey: storageKey)
+        SharedStorage.defaults.set(data, forKey: storageKey)
     }
 
     private static let keyFormatter: DateFormatter = {
@@ -359,7 +370,7 @@ final class DailyMoodNotificationScheduler {
     }
 
     private func hasMoodSelected(on day: Date) -> Bool {
-        guard let data = UserDefaults.standard.data(forKey: moodStorageKey) else { return false }
+        guard let data = SharedStorage.defaults.data(forKey: moodStorageKey) else { return false }
         guard let decoded = try? JSONDecoder().decode([String: String].self, from: data) else { return false }
         let key = dayKey(for: day)
         guard let raw = decoded[key] else { return false }

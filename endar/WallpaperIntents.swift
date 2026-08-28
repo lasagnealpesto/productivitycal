@@ -384,7 +384,7 @@ private struct WallpaperMoodData {
 
     static func load() -> WallpaperMoodData {
         let key = "moodStore.v1"
-        guard let data = UserDefaults.standard.data(forKey: key) else {
+        guard let data = SharedStorage.defaults.data(forKey: key) else {
             return WallpaperMoodData(moods: [:])
         }
         guard let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {

@@ -289,6 +289,13 @@ private struct AppRootView: View {
                 UserDefaults.standard.removePersistentDomain(forName: bundleID)
             }
             UserDefaults.standard.synchronize()
+
+            if let sharedSuite = UserDefaults(suiteName: SharedStorage.appGroupID) {
+                for key in sharedSuite.dictionaryRepresentation().keys {
+                    sharedSuite.removeObject(forKey: key)
+                }
+                sharedSuite.synchronize()
+            }
         }
 
         withAnimation(.easeInOut(duration: 0.28)) {
