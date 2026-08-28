@@ -1,0 +1,26 @@
+.DS_Store
+
+# Xcode
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.swp
+
+# User settings
+**/xcuserdata/
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# Local artifacts
+*.xcresult
+*.ipa
+
+# Local scratch
+.local/
+
+# One-off local generator script (not needed in repo)
+tools_gen_app_icon.swift
