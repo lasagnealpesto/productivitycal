@@ -160,6 +160,14 @@ enum Mood: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    var shortLabel: String {
+        switch self {
+        case .workProductive: return "work"
+        case .personallyProductive: return "personal"
+        case .notProductive: return "not"
+        }
+    }
+
     var tint: Color {
         switch self {
         case .workProductive: return Color(hex: 0x5EBE7D)
@@ -219,24 +227,38 @@ final class MoodStore: ObservableObject {
         DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
     }
 
-    func cycleMood(for date: Date) {
-        let order: [Mood?] = [.workProductive, .personallyProductive, .notProductive, nil]
-        let current = mood(for: date)
-        let idx = order.firstIndex(where: { $0 == current }) ?? -1
-        let next = order[(idx + 1) % order.count]
-        setMood(next, for: date)
+    /// Fills every blank day in `dates` that is today or earlier with `mood`,
+    /// leaving already-filled days untouched. For quickly catching up on past days.
+    func fillBlankPastDays(_ dates: [Date], with mood: Mood) {
+        let today = calendar.startOfDay(for: Date())
+        for date in dates {
+            let day = calendar.startOfDay(for: date)
+            guard day <= today else { continue }
+            let dayKey = key(for: day)
+            guard moods[dayKey] == nil else { continue }
+            moods[dayKey] = mood
+        }
+        save()
+        DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
+    }
+
+    private func countsTowardStreak(_ date: Date) -> Bool {
+        switch mood(for: date) {
+        case .workProductive, .personallyProductive: return true
+        case .notProductive, .none: return false
+        }
     }
 
     func currentStreak(asOf referenceDate: Date = Date()) -> Int {
         var cursor = calendar.startOfDay(for: referenceDate)
 
-        if mood(for: cursor) == nil {
+        if !countsTowardStreak(cursor) {
             guard let yesterday = calendar.date(byAdding: .day, value: -1, to: cursor) else { return 0 }
             cursor = yesterday
         }
 
         var streak = 0
-        while mood(for: cursor) != nil {
+        while countsTowardStreak(cursor) {
             streak += 1
             guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
             cursor = previous
@@ -402,7 +424,7 @@ private struct HomeView: View {
     private let today = Date()
     @State private var showConfirmAction = false
     @State private var pendingAccountAction: AccountAction?
-    @State private var showStreakCelebration = false
+    @State private var revealedMood: Mood?
 
     var body: some View {
         NavigationStack {
@@ -430,7 +452,7 @@ private struct HomeView: View {
 
                         let streak = moodStore.currentStreak(asOf: today)
                         if streak > 0 {
-                            StreakBadge(streak: streak, palette: palette, isCelebrating: showStreakCelebration)
+                            StreakBadge(streak: streak, palette: palette)
                         }
                     }
 
@@ -471,24 +493,56 @@ private struct HomeView: View {
                 Text(action.confirmMessage)
             }
         }
+        .fullScreenCover(item: $revealedMood) { mood in
+            MoodRevealOverlay(mood: mood) {
+                revealedMood = nil
+            }
+        }
     }
 
     private func selectMood(_ mood: Mood) {
-        let isFirstSetToday = moodStore.mood(for: today) == nil
         moodStore.setMood(mood, for: today)
+        Haptics.success()
+        revealedMood = mood
+    }
+}
 
-        if isFirstSetToday {
-            Haptics.success()
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
-                showStreakCelebration = true
+private struct MoodRevealOverlay: View {
+    let mood: Mood
+    let onDismiss: () -> Void
+
+    private var message: String {
+        switch mood {
+        case .workProductive:
+            return "you killed it today"
+        case .personallyProductive:
+            return "nice job — taking time for yourself does you good"
+        case .notProductive:
+            return "you'll catch up tomorrow — i believe in you"
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            mood.tint.ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                Image(systemName: mood.systemImage)
+                    .font(.system(size: 56, weight: .bold))
+                    .foregroundStyle(.white)
+
+                Text(message)
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-                withAnimation(.easeOut(duration: 0.3)) {
-                    showStreakCelebration = false
-                }
-            }
-        } else {
-            Haptics.light()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onDismiss() }
+        .task {
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            onDismiss()
         }
     }
 }
@@ -496,7 +550,6 @@ private struct HomeView: View {
 private struct StreakBadge: View {
     let streak: Int
     let palette: AppPalette
-    var isCelebrating = false
 
     var body: some View {
         HStack(spacing: 5) {
@@ -516,7 +569,6 @@ private struct StreakBadge: View {
             Capsule()
                 .stroke(palette.border, lineWidth: 1)
         )
-        .scaleEffect(isCelebrating ? 1.16 : 1.0)
         .accessibilityLabel("\(streak) day streak")
     }
 }
@@ -654,6 +706,7 @@ private struct CalendarView: View {
 
     @State private var selectedYear: Int
     @State private var selectedMonth: Int
+    @State private var isShowingQuickFill = false
 
     private let calendar = Calendar.current
 
@@ -668,6 +721,11 @@ private struct CalendarView: View {
 
     private var monthStart: Date {
         calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)) ?? Date()
+    }
+
+    private var yearOptions: [Int] {
+        let current = calendar.component(.year, from: Date())
+        return Array((current - 5)...(current + 1)).reversed()
     }
 
     private var monthSymbols: [String] {
@@ -695,41 +753,36 @@ private struct CalendarView: View {
                         ThemeToggle(themeRaw: $themeRaw, palette: palette)
                     }
 
-                    HStack(spacing: 12) {
-                        Button {
-                            selectedYear -= 1
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(palette.textPrimary)
-                                .frame(width: 34, height: 34)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(palette.surface)
-                                )
+                    Menu {
+                        ForEach(yearOptions, id: \.self) { year in
+                            Button {
+                                selectedYear = year
+                            } label: {
+                                if year == selectedYear {
+                                    Label(String(year), systemImage: "checkmark")
+                                } else {
+                                    Text(String(year))
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("previous year")
-
-                        Text(verbatim: String(selectedYear))
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(palette.textPrimary)
-
-                        Button {
-                            selectedYear += 1
-                        } label: {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 15, weight: .semibold))
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(verbatim: String(selectedYear))
+                                .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(palette.textPrimary)
-                                .frame(width: 34, height: 34)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(palette.surface)
-                                )
+
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(palette.textSecondary)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("next year")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(palette.surface)
+                        )
                     }
+                    .accessibilityLabel("select year")
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
@@ -760,6 +813,38 @@ private struct CalendarView: View {
                     Text("fell behind? catch up on your year — tap any day to fill it in, or leave it blank.")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(palette.textSecondary)
+
+                    Button {
+                        isShowingQuickFill = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "wand.and.stars")
+                            Text("quick fill blank days this month")
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(palette.textPrimary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(palette.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(palette.border, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $isShowingQuickFill) {
+                        MoodColorPicker(palette: palette, includeBlank: false) { picked in
+                            if let picked {
+                                Haptics.light()
+                                moodStore.fillBlankPastDays(monthDates, with: picked)
+                            }
+                            isShowingQuickFill = false
+                        }
+                        .presentationCompactAdaptation(.popover)
+                    }
 
                     calendarProgressSection
                         .padding(.top, 26)
@@ -890,27 +975,15 @@ private struct CalendarDayCell: View {
     let isDisabled: Bool
     let onSelect: (Mood?) -> Void
 
+    @State private var isShowingPicker = false
+
     private var dayNumber: String {
         String(Calendar.current.component(.day, from: date))
     }
 
     var body: some View {
-        Menu {
-            ForEach(Mood.allCases) { option in
-                Button {
-                    Haptics.light()
-                    onSelect(option)
-                } label: {
-                    Label(option.title, systemImage: option.systemImage)
-                }
-            }
-
-            Button {
-                Haptics.light()
-                onSelect(nil)
-            } label: {
-                Label("blank", systemImage: "circle")
-            }
+        Button {
+            isShowingPicker = true
         } label: {
             Text(dayNumber)
                 .font(.system(size: 13, weight: .semibold))
@@ -926,9 +999,61 @@ private struct CalendarDayCell: View {
                         .stroke(mood == nil ? palette.border : (mood?.tint ?? palette.border), lineWidth: 1)
                 )
         }
+        .buttonStyle(.plain)
         .disabled(isDisabled)
         .accessibilityLabel("day \(dayNumber)")
         .accessibilityValue(mood?.title ?? "blank")
+        .popover(isPresented: $isShowingPicker) {
+            MoodColorPicker(palette: palette) { picked in
+                Haptics.light()
+                onSelect(picked)
+                isShowingPicker = false
+            }
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+/// A row of colored swatches for picking a mood, so the color is visible
+/// before you choose it (used by the calendar day picker and quick fill).
+private struct MoodColorPicker: View {
+    let palette: AppPalette
+    var includeBlank = true
+    let onPick: (Mood?) -> Void
+
+    var body: some View {
+        HStack(spacing: 18) {
+            ForEach(Mood.allCases) { option in
+                swatch(color: option.tint, label: option.shortLabel) {
+                    onPick(option)
+                }
+            }
+
+            if includeBlank {
+                swatch(color: nil, label: "blank") {
+                    onPick(nil)
+                }
+            }
+        }
+        .padding(18)
+    }
+
+    private func swatch(color: Color?, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Circle()
+                    .fill(color ?? Color.clear)
+                    .frame(width: 34, height: 34)
+                    .overlay(
+                        Circle().stroke(color ?? palette.border, lineWidth: color == nil ? 1.5 : 0)
+                    )
+
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(palette.textSecondary)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
