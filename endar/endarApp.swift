@@ -42,7 +42,6 @@ struct endarApp: App {
         control.setTitleTextAttributes(normalAttrs, for: .normal)
         control.setTitleTextAttributes(selectedAttrs, for: .selected)
 
-        DailyMoodNotificationScheduler.shared.configureIfNeeded()
         #endif
 
         #if canImport(AppIntents)
@@ -134,6 +133,7 @@ private struct AppRootView: View {
         withAnimation(.easeInOut(duration: 0.28)) {
             hasAuthenticated = true
         }
+        DailyMoodNotificationScheduler.shared.configureIfNeeded()
     }
 
     private func handleLogout() {
@@ -439,7 +439,7 @@ private struct LoginView: View {
 
                 VStack(spacing: 14) {
                     LiquidGlassSSOButton(
-                        title: isAppleSigningIn ? "Connecting..." : "Sign in with Apple",
+                        title: isAppleSigningIn ? "connecting..." : "Sign in with Apple",
                         action: onAppleSignIn
                     ) {
                         Image(systemName: "apple.logo")
@@ -449,7 +449,7 @@ private struct LoginView: View {
                     .disabled(isAppleSigningIn)
 
                     LiquidGlassSSOButton(
-                        title: isGoogleSigningIn ? "Connecting..." : "Sign in with Google",
+                        title: isGoogleSigningIn ? "connecting..." : "Sign in with Google",
                         action: onGoogleSignIn
                     ) {
                         GoogleLogoIcon()

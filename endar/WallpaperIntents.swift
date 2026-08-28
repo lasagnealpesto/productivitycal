@@ -14,7 +14,7 @@ import UIKit
 struct WallpaperAutomationGuideView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("theme.mode.v1") private var themeRaw: String = AppTheme.dark.rawValue
-    @State private var selectedPremiumSetupStep = 0
+    @State private var selectedWallpaperSetupStep = 0
 
     private var theme: AppTheme {
         AppTheme(rawValue: themeRaw) ?? .dark
@@ -26,32 +26,28 @@ struct WallpaperAutomationGuideView: View {
 
     var body: some View {
         NavigationStack {
-            GeometryReader { _ in
-                VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("setup instructions")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(palette.textPrimary)
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("setup instructions")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(palette.textPrimary)
 
-                        Text("Swipe through each step, then open Shortcuts when you're ready to set it up.")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(palette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 24)
-
-                    Spacer(minLength: 20)
-
-                    PremiumSetupOverlayCard(
-                        palette: palette,
-                        selectedStep: $selectedPremiumSetupStep,
-                        steps: PremiumSetupGuideContent.steps
-                    )
-                    .padding(.horizontal, 16)
-
-                    Spacer(minLength: 20)
+                    Text("swipe through each step, then open shortcuts when you're ready to set it up.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 24)
+                .padding(.bottom, 20)
+
+                WallpaperSetupCarousel(
+                    palette: palette,
+                    selectedStep: $selectedWallpaperSetupStep,
+                    steps: WallpaperSetupGuideContent.steps
+                )
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(
                 palette.background
@@ -60,10 +56,10 @@ struct WallpaperAutomationGuideView: View {
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 14) {
                     HStack(spacing: 8) {
-                        ForEach(PremiumSetupGuideContent.steps) { step in
+                        ForEach(WallpaperSetupGuideContent.steps) { step in
                             Circle()
-                                .fill(step.id == selectedPremiumSetupStep ? palette.textPrimary : palette.border)
-                                .frame(width: step.id == selectedPremiumSetupStep ? 9 : 7, height: step.id == selectedPremiumSetupStep ? 9 : 7)
+                                .fill(step.id == selectedWallpaperSetupStep ? palette.textPrimary : palette.border)
+                                .frame(width: step.id == selectedWallpaperSetupStep ? 9 : 7, height: step.id == selectedWallpaperSetupStep ? 9 : 7)
                         }
                     }
                     .frame(maxWidth: .infinity)

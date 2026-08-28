@@ -442,9 +442,9 @@ private enum AccountAction {
     var confirmMessage: String {
         switch self {
         case .logout:
-            return "Do you really want to log out of the app?"
+            return "do you really want to log out of the app?"
         case .deleteAccount:
-            return "Do you really want to delete the account on this device? This action also removes local data."
+            return "do you really want to delete the account on this device? this action also removes local data."
         }
     }
 
@@ -614,6 +614,7 @@ private struct CalendarView: View {
                                 )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("previous year")
 
                         Text(verbatim: String(selectedYear))
                             .font(.system(size: 22, weight: .semibold))
@@ -632,6 +633,7 @@ private struct CalendarView: View {
                                 )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("next year")
                     }
 
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -660,7 +662,7 @@ private struct CalendarView: View {
 
                     legendRow
 
-                    Text("use this to change past days, if you remember them. if not, leave them blank.")
+                    Text("fell behind? catch up on your year — tap any day to fill it in, or leave it blank.")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(palette.textSecondary)
 
@@ -726,9 +728,9 @@ private struct CalendarView: View {
                             mood: moodStore.mood(for: date),
                             palette: palette,
                             isDisabled: isFutureDate(date)
-                        ) {
+                        ) { newMood in
                             if !isFutureDate(date) {
-                                moodStore.cycleMood(for: date)
+                                moodStore.setMood(newMood, for: date)
                             }
                         }
                     } else {
@@ -791,18 +793,28 @@ private struct CalendarDayCell: View {
     let mood: Mood?
     let palette: AppPalette
     let isDisabled: Bool
-    let onTap: () -> Void
+    let onSelect: (Mood?) -> Void
 
     private var dayNumber: String {
         String(Calendar.current.component(.day, from: date))
     }
 
     var body: some View {
-        calendarDayButton
-    }
+        Menu {
+            ForEach(Mood.allCases) { option in
+                Button {
+                    onSelect(option)
+                } label: {
+                    Label(option.title, systemImage: option.systemImage)
+                }
+            }
 
-    private var calendarDayButton: some View {
-        Button(action: onTap) {
+            Button {
+                onSelect(nil)
+            } label: {
+                Label("blank", systemImage: "circle")
+            }
+        } label: {
             Text(dayNumber)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(palette.textPrimary.opacity(isDisabled ? 0.35 : 1))
@@ -817,8 +829,9 @@ private struct CalendarDayCell: View {
                         .stroke(mood == nil ? palette.border : (mood?.tint ?? palette.border), lineWidth: 1)
                 )
         }
-        .buttonStyle(.plain)
         .disabled(isDisabled)
+        .accessibilityLabel("day \(dayNumber)")
+        .accessibilityValue(mood?.title ?? "blank")
     }
 }
 
@@ -863,6 +876,7 @@ private struct ThemeToggle: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(theme == .dark ? "switch to light mode" : "switch to dark mode")
     }
 }
 
@@ -880,10 +894,11 @@ private struct AccountActionsMenu: View {
             }
         } label: {
             HeaderGlassIcon(
-                systemName: "person.crop.circle.badge.minus",
+                systemName: "person.crop.circle",
                 palette: palette
             )
         }
+        .accessibilityLabel("account options")
     }
 }
 
@@ -932,52 +947,52 @@ private enum WallpaperDotShapeOption: String, CaseIterable, Identifiable {
     }
 }
 
-struct PremiumSetupStep: Identifiable {
+struct WallpaperSetupStep: Identifiable {
     let id: Int
     let title: String
     let description: String
     let imageName: String
 }
 
-enum PremiumSetupGuideContent {
-    static let steps: [PremiumSetupStep] = [
-        PremiumSetupStep(
+enum WallpaperSetupGuideContent {
+    static let steps: [WallpaperSetupStep] = [
+        WallpaperSetupStep(
             id: 0,
             title: "open shortcuts",
             description: "Create a new personal automation and choose the wallpaper trigger to start the setup.",
             imageName: "PHOTO-2026-04-15-16-59-29.jpg"
         ),
-        PremiumSetupStep(
+        WallpaperSetupStep(
             id: 1,
             title: "pick the trigger",
             description: "Select the wallpaper automation option shown in the screenshot so the shortcut runs at the right moment.",
             imageName: "PHOTO-2026-04-15-16-59-29-2.jpg"
         ),
-        PremiumSetupStep(
+        WallpaperSetupStep(
             id: 2,
             title: "choose endar",
             description: "Search for the endar action and add it to the automation flow before saving.",
             imageName: "PHOTO-2026-04-15-16-59-29-3.jpg"
         ),
-        PremiumSetupStep(
+        WallpaperSetupStep(
             id: 3,
             title: "set the input",
             description: "Configure the action with the right wallpaper period and keep the automation focused on your selected device.",
             imageName: "PHOTO-2026-04-15-16-59-29-4.jpg"
         ),
-        PremiumSetupStep(
+        WallpaperSetupStep(
             id: 4,
             title: "disable confirmation",
             description: "Turn off any extra confirmation step so the wallpaper change can run automatically in the background.",
             imageName: "PHOTO-2026-04-15-16-59-29-5.jpg"
         ),
-        PremiumSetupStep(
+        WallpaperSetupStep(
             id: 5,
             title: "review the flow",
             description: "Double-check the final automation screen and confirm every step looks like the reference image.",
             imageName: "PHOTO-2026-04-15-16-59-29-6.jpg"
         ),
-        PremiumSetupStep(
+        WallpaperSetupStep(
             id: 6,
             title: "save and test",
             description: "Save the automation, run one quick test swipe through the year, and then use set wallpaper whenever you want.",
@@ -1083,8 +1098,6 @@ private struct SetView: View {
     @State private var model: iPhoneModel = .iphone17
     @State private var dotShape: WallpaperDotShapeOption = .squircle
     @State private var showWallpaperGuide = false
-    @State private var selectedPremiumSetupStep = 0
-    @State private var isShowingSetupInstructions = false
 
     private var theme: AppTheme {
         AppTheme(rawValue: themeRaw) ?? .dark
@@ -1092,47 +1105,24 @@ private struct SetView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Spacer()
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Spacer()
 
-                        ThemeToggle(themeRaw: $themeRaw, palette: palette)
-                    }
-
-                    wallpaperModelSelection
-                    wallpaperControls
-
-                    Spacer(minLength: 0)
+                    ThemeToggle(themeRaw: $themeRaw, palette: palette)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 24)
-                .padding(.bottom, 24)
-                .background(BackgroundView(palette: palette))
 
-                if isShowingSetupInstructions {
-                    Color.black.opacity(0.34)
-                        .ignoresSafeArea()
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.22)) {
-                                isShowingSetupInstructions = false
-                            }
-                        }
+                wallpaperModelSelection
+                wallpaperControls
 
-                    PremiumSetupOverlayCard(
-                        palette: palette,
-                        selectedStep: $selectedPremiumSetupStep,
-                        steps: PremiumSetupGuideContent.steps
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 36)
-                    .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
-                }
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 24)
+            .padding(.bottom, 24)
+            .background(BackgroundView(palette: palette))
         }
         .onAppear {
-            isShowingSetupInstructions = false
             wallpaperPeriodRaw = "Year"
             if wallpaperDeviceUserSelected, let restored = iPhoneModel.fromStorage(wallpaperDeviceRaw) {
                 model = restored
@@ -1256,147 +1246,74 @@ private struct SetView: View {
     }
 }
 
-private struct PremiumSetupStepCard: View {
-    let step: PremiumSetupStep
+private struct WallpaperSetupStepCard: View {
+    let step: WallpaperSetupStep
     let palette: AppPalette
-    @State private var isShowingImagePreview = false
-    private let screenshotMaxHeight: CGFloat = 280
-    private let cardCornerRadius: CGFloat = 26
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(step.title)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(palette.textPrimary)
+        VStack(alignment: .leading, spacing: 16) {
+            WallpaperSetupScreenshot(imageName: step.imageName, palette: palette)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Text(step.description)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(palette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(step.title)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(palette.textPrimary)
 
-            PremiumSetupScreenshot(imageName: step.imageName, palette: palette)
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: screenshotMaxHeight)
-                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .onTapGesture {
-                    isShowingImagePreview = true
-                }
+                Text(step.description)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(cardBackground)
-        .compositingGroup()
-        .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                .stroke(palette.border.opacity(0.95), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.18), radius: 30, x: 0, y: 12)
-        .sheet(isPresented: $isShowingImagePreview) {
-            PremiumSetupImagePreview(
-                stepTitle: step.title,
-                imageName: step.imageName,
-                palette: palette
-            )
-            .presentationDragIndicator(.visible)
-            .presentationBackground(.clear)
-        }
-    }
-
-    @ViewBuilder
-    private var cardBackground: some View {
-        if #available(iOS 26.0, *) {
-            Color.clear
-                .glassEffect(
-                    .regular.tint(palette.surface.opacity(0.9)),
-                    in: RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                )
-        } else {
-            RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                .fill(palette.surface.opacity(0.96))
-        }
+        .padding(.horizontal, 4)
     }
 }
 
-struct PremiumSetupOverlayCard: View {
+struct WallpaperSetupCarousel: View {
     let palette: AppPalette
     @Binding var selectedStep: Int
-    let steps: [PremiumSetupStep]
-    @State private var stepHeights: [Int: CGFloat] = [:]
+    let steps: [WallpaperSetupStep]
 
     var body: some View {
         TabView(selection: $selectedStep) {
             ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-                GeometryReader { _ in
-                    PremiumSetupStepCard(step: step, palette: palette)
-                        .background(
-                            GeometryReader { cardGeometry in
-                                Color.clear
-                                    .preference(key: PremiumSetupStepHeightPreferenceKey.self, value: [step.id: cardGeometry.size.height])
-                            }
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                }
-                .tag(index)
+                WallpaperSetupStepCard(step: step, palette: palette)
+                    .tag(index)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: carouselHeight)
-        .background(Color.clear)
-        .frame(maxWidth: .infinity, alignment: .center)
-        .frame(maxWidth: 560)
-        .background(Color.clear)
-        .onPreferenceChange(PremiumSetupStepHeightPreferenceKey.self) { heights in
-            stepHeights.merge(heights) { _, new in new }
-        }
-    }
-
-    private var carouselHeight: CGFloat {
-        stepHeights.values.max() ?? 466
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-private struct PremiumSetupStepHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: [Int: CGFloat] = [:]
-
-    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
-        value.merge(nextValue()) { _, new in new }
-    }
-}
-
-private struct PremiumSetupScreenshot: View {
+private struct WallpaperSetupScreenshot: View {
     let imageName: String
     let palette: AppPalette
-    private let cornerRadius: CGFloat = 16
+    private let cornerRadius: CGFloat = 22
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Group {
-                if let image = bundledImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                } else {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color.black.opacity(0.12))
-                        .overlay {
-                            VStack(spacing: 8) {
-                                Image(systemName: "photo")
-                                    .font(.system(size: 24, weight: .semibold))
-                                Text("screenshot unavailable")
-                                    .font(.system(size: 13, weight: .semibold))
-                            }
-                            .foregroundStyle(Color.white.opacity(0.85))
+        Group {
+            if let image = bundledImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.black.opacity(0.12))
+                    .overlay {
+                        VStack(spacing: 8) {
+                            Image(systemName: "photo")
+                                .font(.system(size: 24, weight: .semibold))
+                            Text("screenshot unavailable")
+                                .font(.system(size: 13, weight: .semibold))
                         }
-                }
+                        .foregroundStyle(Color.white.opacity(0.85))
+                    }
             }
-
-            screenshotExpandBadge
         }
-        .frame(maxWidth: .infinity)
-        .aspectRatio(imageAspectRatio, contentMode: .fit)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(screenshotBackground)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
@@ -1419,30 +1336,6 @@ private struct PremiumSetupScreenshot: View {
         }
     }
 
-    @ViewBuilder
-    private var screenshotExpandBadge: some View {
-        let badge = Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(.system(size: 13, weight: .bold))
-            .foregroundStyle(palette.textPrimary)
-            .padding(10)
-
-        if #available(iOS 26.0, *) {
-            badge
-                .glassEffect(
-                    .regular.tint(palette.surface.opacity(0.28)),
-                    in: Circle()
-                )
-                .padding(12)
-        } else {
-            badge
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                )
-                .padding(12)
-        }
-    }
-
     private var bundledImage: UIImage? {
         if let directPath = Bundle.main.path(forResource: imageName, ofType: nil) {
             return UIImage(contentsOfFile: directPath)
@@ -1453,66 +1346,6 @@ private struct PremiumSetupScreenshot: View {
         }
 
         return nil
-    }
-
-    private var imageAspectRatio: CGFloat {
-        guard let bundledImage else { return 16.0 / 9.0 }
-        let size = bundledImage.size
-        guard size.width > 0, size.height > 0 else { return 16.0 / 9.0 }
-        return size.width / size.height
-    }
-}
-
-private struct PremiumSetupImagePreview: View {
-    let stepTitle: String
-    let imageName: String
-    let palette: AppPalette
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            BackgroundView(palette: palette)
-
-            VStack(alignment: .leading, spacing: 16) {
-                Text(stepTitle)
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(palette.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                PremiumSetupScreenshot(imageName: imageName, palette: palette)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 28)
-            .padding(.bottom, 20)
-
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(palette.textPrimary)
-                    .padding(12)
-            }
-            .buttonStyle(.plain)
-            .background(closeButtonBackground)
-            .padding(.top, 16)
-            .padding(.trailing, 16)
-        }
-    }
-
-    @ViewBuilder
-    private var closeButtonBackground: some View {
-        if #available(iOS 26.0, *) {
-            Color.clear
-                .glassEffect(
-                    .regular.tint(palette.surface.opacity(0.28)),
-                    in: Circle()
-                )
-        } else {
-            Circle()
-                .fill(.ultraThinMaterial)
-        }
     }
 }
 
