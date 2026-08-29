@@ -3,14 +3,9 @@
 Elenco di cose rimandate volontariamente durante il lavoro sulla v1.0, da
 valutare per la prossima release.
 
-## 1. Sync iCloud per i dati (mood/calendario)
-Oggi tutto è locale (`UserDefaults`/App Group) — se l'utente disinstalla
-l'app o cambia iPhone perde tutta la cronologia, anche se ha fatto
-"sign in". Idea: usare `NSUbiquitousKeyValueStore` (o CloudKit se serve
-più capacità) per sincronizzare automaticamente tra i dispositivi
-dell'utente collegati allo stesso iCloud — gratis, nessun backend da
-gestire, indipendente da quale provider di login (Apple/Google) ha usato.
-Non banale: va implementato e testato con cura prima di spedirlo.
+## 1. Sync iCloud per i dati (mood/calendario) — ❌ NON SERVE PIÙ
+Scelta la strada del backend vero (vedi punto 8) invece di iCloud — erano
+due alternative per lo stesso problema, non serviva farle entrambe.
 
 ## 2. Widget home screen (streak) — ✅ FATTO
 Target "Productivity Widget" creato in Xcode, codice incollato, App Groups
@@ -68,14 +63,27 @@ Le screenshot attuali su App Store Connect sono da rifare/arricchire:
 3. **Screenshot della notifica**: mostrare la notifica giornaliera (18:00)
    com'è realmente su schermo, per comunicare il reminder automatico.
 
-## 8. Login + backend vero, dati legati al profilo
-Oggi il login (Apple/Google) esiste ma i dati restano locali sul
-dispositivo (vedi punto 1) — non c'è un vero account nel senso di "i miei
-dati mi seguono ovunque faccio login". Da fare: backend con database
-(es. Supabase/Firebase) dove ogni utente autenticato ha il proprio storico
-mood salvato lato server, associato al suo account — non più legato al
-singolo iPhone/App Group locale. Alternativa più leggera al punto 1
-(iCloud): qui il vantaggio è che funziona anche se in futuro l'app girasse
-su più piattaforme o l'utente cambiasse provider di login. Da valutare
-insieme a quale via scegliere (iCloud-only vs backend proprio) prima di
-implementare — sono due strade diverse, non serve farle entrambe.
+## 8. Login + backend vero, dati legati al profilo — 🟡 codice pronto, manca 1 step in Xcode
+Backend Supabase creato (progetto "productivitycal", ref `nxcdjnmiulliwpwnbbsx`,
+org Supabase esistente) con tabella `moods` (user_id, day, mood, updated_at)
+e row-level-security per account. Lato codice:
+- `endar/SupabaseSync.swift` (nuovo file): `MoodSyncService` — scambia il
+  token nativo di Sign in with Apple/Google per una sessione Supabase vera,
+  fa pull+merge (locale vince sui conflitti, riempie solo i buchi) al primo
+  avvio dopo login, e push di ogni singolo giorno modificato in tempo reale.
+  Tutto dentro `#if canImport(Supabase)`, quindi l'app compila e funziona
+  anche prima di aggiungere il pacchetto (la sync resta solo inattiva).
+- `MoodStore` (in `ContentView.swift`): aggiunto `onDayChanged` hook e
+  `mergeRemote(_:)` per collegarsi alla sync senza che sappia che Supabase
+  esiste.
+- `endarApp.swift`: dopo login Apple/Google chiama `MoodSyncService.signIn`;
+  al logout chiama `MoodSyncService.signOut`.
+- **Manca solo**: in Xcode, File → Add Package Dependencies → incolla
+  `https://github.com/supabase/supabase-swift` → aggiungi il prodotto
+  "Supabase" al target "endar". ~2 minuti, poi build — a differenza del
+  widget qui gli errori di compilazione (se ce ne sono) li vedi subito in
+  Xcode, quindi è normale/atteso dover sistemare qualche dettaglio all'API
+  al primo build.
+- Non ancora fatto (rifinitura futura, non blocca): passare un `nonce` nello
+  scambio Sign in with Apple → Supabase per protezione anti-replay più
+  forte; oggi funziona ma senza quell'indurimento extra.

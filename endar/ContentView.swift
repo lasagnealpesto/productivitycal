@@ -211,6 +211,12 @@ struct ContentView: View {
                     selectedTab = .home
                 }
             }
+            #if canImport(Supabase)
+            .task {
+                moodStore.onDayChanged = MoodSyncService.pushSingleDay
+                await MoodSyncService.syncNow(store: moodStore)
+            }
+            #endif
         }
     }
 }
@@ -283,6 +289,11 @@ enum Mood: String, CaseIterable, Identifiable, Codable {
 final class MoodStore: ObservableObject {
     @Published private(set) var moods: [String: Mood] = [:]
 
+    /// Called after every local change (day key + new mood, `nil` if cleared)
+    /// so an external sync layer (see SupabaseSync.swift) can mirror it to
+    /// the signed-in account without MoodStore needing to know that exists.
+    var onDayChanged: ((String, Mood?) -> Void)?
+
     private let storageKey = "moodStore.v1"
     private let calendar = Calendar.current
 
@@ -303,6 +314,7 @@ final class MoodStore: ObservableObject {
         }
         save()
         DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
+        onDayChanged?(key, mood)
     }
 
     /// Sets every day in `dates` that is today or earlier to `mood`, overwriting
@@ -312,10 +324,27 @@ final class MoodStore: ObservableObject {
         for date in dates {
             let day = calendar.startOfDay(for: date)
             guard day <= today else { continue }
-            moods[key(for: day)] = mood
+            let key = key(for: day)
+            moods[key] = mood
+            onDayChanged?(key, mood)
         }
         save()
         DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
+    }
+
+    /// Fills in only the days missing locally with a remote value — local
+    /// always wins on conflicts, this never overwrites a value already set
+    /// on this device. Used to restore history after a reinstall or on a
+    /// new device signed into the same account.
+    func mergeRemote(_ remote: [String: Mood]) {
+        var changed = false
+        for (key, mood) in remote where moods[key] == nil {
+            moods[key] = mood
+            changed = true
+        }
+        if changed {
+            save()
+        }
     }
 
     private func countsTowardStreak(_ date: Date) -> Bool {

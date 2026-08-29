@@ -211,6 +211,11 @@ private struct AppRootView: View {
                     storedAppleUserID = credential.user
                     authProviderRaw = SessionAuthProvider.apple.rawValue
                     GIDSignIn.sharedInstance.signOut()
+                    #if canImport(Supabase)
+                    if let tokenData = credential.identityToken, let idToken = String(data: tokenData, encoding: .utf8) {
+                        Task { await MoodSyncService.signIn(idToken: idToken, provider: .apple) }
+                    }
+                    #endif
                     completeLogin()
                 case .failure:
                     break
@@ -236,9 +241,14 @@ private struct AppRootView: View {
         GIDSignIn.sharedInstance.configuration = configuration
         GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { result, _ in
             isGoogleSigningIn = false
-            guard result != nil else { return }
+            guard let result else { return }
             authProviderRaw = SessionAuthProvider.google.rawValue
             storedAppleUserID = ""
+            #if canImport(Supabase)
+            if let idToken = result.user.idToken?.tokenString {
+                Task { await MoodSyncService.signIn(idToken: idToken, provider: .google) }
+            }
+            #endif
             completeLogin()
         }
     }
@@ -289,6 +299,10 @@ private struct AppRootView: View {
         authProviderRaw = ""
         isAppleSigningIn = false
         isGoogleSigningIn = false
+
+        #if canImport(Supabase)
+        Task { await MoodSyncService.signOut() }
+        #endif
 
         if resetAllLocalData {
             if let bundleID = Bundle.main.bundleIdentifier {
