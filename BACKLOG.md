@@ -12,22 +12,12 @@ dell'utente collegati allo stesso iCloud — gratis, nessun backend da
 gestire, indipendente da quale provider di login (Apple/Google) ha usato.
 Non banale: va implementato e testato con cura prima di spedirlo.
 
-## 2. Widget home screen (streak)
-Codice pronto, non ancora collegato al progetto Xcode:
-- `WidgetExtensionSource.swift` (nella root del repo) contiene il codice
-  completo: formato small (streak + stato "today done"/"tap to log
-  today") e formato medium (streak + mini-preview a pallini colorati
-  degli ultimi 7 giorni, stessa palette mood dell'app).
-- Tap sul widget apre l'app direttamente sulla home per loggare il mood
-  di oggi, via deep link `productivitycal://log` — già cablato lato app
-  principale (`Info.plist` + `onOpenURL` in `endarApp.swift` + ascolto in
-  `ContentView`), non serve altro lì.
-- Lo storage condiviso via App Group (`group.com.productivitycal.productivitycal`)
-  è già configurato lato app principale, con fallback automatico.
-- Manca solo: creare il target "Widget Extension" in Xcode (File → New →
-  Target), incollare il codice, e aggiungere la capability "App Groups"
-  a entrambi i target. ~5 minuti in Xcode, va fatto da lì (non in modo
-  sicuro via modifica diretta del `project.pbxproj`).
+## 2. Widget home screen (streak) — ✅ FATTO
+Target "Productivity Widget" creato in Xcode, codice incollato, App Groups
+configurato su entrambi i target, testato su device reale con successo.
+Formato small (streak + stato) e medium (streak + mini-preview 7 giorni)
+entrambi funzionanti; tap sul widget apre l'app sulla home via deep link
+`productivitycal://log`.
 
 ## 3. Automazione wallpaper con meno step
 Oggi il setup richiede ~12 passaggi manuali in Shortcuts (tutorial con
