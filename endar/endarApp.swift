@@ -57,6 +57,12 @@ struct endarApp: App {
         WindowGroup {
             AppRootView()
                 .onOpenURL { url in
+                    if url.scheme == "productivitycal" {
+                        if url.host == "log" {
+                            NotificationCenter.default.post(name: .productivitycalOpenLog, object: nil)
+                        }
+                        return
+                    }
                     GIDSignIn.sharedInstance.handle(url)
                 }
         }

@@ -14,6 +14,13 @@ extension Color {
     static let appAccent = Color(hex: 0xFF5C00)
 }
 
+extension Notification.Name {
+    /// Posted when the app is opened via the "productivitycal://log" deep link
+    /// (currently only the home screen widget's tap target), asking to jump to
+    /// the home tab so the user can log today's mood immediately.
+    static let productivitycalOpenLog = Notification.Name("productivitycal.openLog")
+}
+
 /// Storage shared with the (not-yet-added) home screen widget via an App Group.
 /// Falls back to `.standard` until the "group.com.productivitycal.productivitycal"
 /// App Group is added to this target's entitlements, so this is safe to ship before that.
@@ -199,6 +206,11 @@ struct ContentView: View {
                         }
                     }
             )
+            .onReceive(NotificationCenter.default.publisher(for: .productivitycalOpenLog)) { _ in
+                withAnimation(Self.tabSwipeSettle) {
+                    selectedTab = .home
+                }
+            }
         }
     }
 }

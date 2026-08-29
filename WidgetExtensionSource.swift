@@ -21,7 +21,15 @@
 //     UserDefaults until this App Group exists, so nothing breaks before
 //     you do this step).
 //  4. Build the widget scheme once, then long-press your home screen,
-//     tap "+", find "productivitycal" and add the "streak" widget.
+//     tap "+", find "productivitycal" and add the "streak" widget (comes
+//     in a small size, just the streak, and a medium size that also shows
+//     the last 7 days as colored dots).
+//
+//  Tapping the widget opens the app via the "productivitycal://log" deep
+//  link, which jumps straight to the home tab to log today's mood — see
+//  `.onOpenURL` in endarApp.swift and the CFBundleURLTypes entry for the
+//  "productivitycal" scheme in Info.plist (both already wired up on the
+//  main app side, nothing else to do there).
 //
 //  If Xcode's template already named things differently (kind string,
 //  bundle struct name), it's fine to keep this file's names — just make
@@ -44,6 +52,24 @@ private enum EndarSharedStorage {
     }
 }
 
+/// Mirrors `Mood.tint` from the main app's ContentView.swift. Kept as a plain
+/// raw-value lookup (rather than importing the real `Mood` enum) so this file
+/// has zero dependency on the main app target.
+private enum EndarMoodColor {
+    static func tint(forRawValue raw: String) -> Color? {
+        switch raw {
+        case "work_productive":
+            return Color(red: 0x5E / 255, green: 0xBE / 255, blue: 0x7D / 255)
+        case "personally_productive":
+            return Color(red: 0x4D / 255, green: 0x83 / 255, blue: 0xFF / 255)
+        case "not_productive":
+            return Color(red: 0xEB / 255, green: 0x57 / 255, blue: 0x57 / 255)
+        default:
+            return nil
+        }
+    }
+}
+
 private enum EndarStreakReader {
     private static let storageKey = "moodStore.v1"
 
@@ -56,33 +82,50 @@ private enum EndarStreakReader {
         return formatter
     }()
 
-    private static func isFilled(_ date: Date) -> Bool {
-        guard let data = EndarSharedStorage.defaults.data(forKey: storageKey) else { return false }
-        guard let decoded = try? JSONDecoder().decode([String: String].self, from: data) else { return false }
-        let key = dayFormatter.string(from: Calendar.current.startOfDay(for: date))
-        return decoded[key] != nil
+    private static func loadStoredMoods() -> [String: String] {
+        guard let data = EndarSharedStorage.defaults.data(forKey: storageKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+    }
+
+    private static func key(for date: Date) -> String {
+        dayFormatter.string(from: Calendar.current.startOfDay(for: date))
     }
 
     static func isTodayFilled() -> Bool {
-        isFilled(Date())
+        let moods = loadStoredMoods()
+        return moods[key(for: Date())] != nil
     }
 
     static func currentStreak(asOf referenceDate: Date = Date()) -> Int {
+        let moods = loadStoredMoods()
         let calendar = Calendar.current
         var cursor = calendar.startOfDay(for: referenceDate)
 
-        if !isFilled(cursor) {
+        if moods[key(for: cursor)] == nil {
             guard let yesterday = calendar.date(byAdding: .day, value: -1, to: cursor) else { return 0 }
             cursor = yesterday
         }
 
         var streak = 0
-        while isFilled(cursor) {
+        while moods[key(for: cursor)] != nil {
             streak += 1
             guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
             cursor = previous
         }
         return streak
+    }
+
+    /// The last `count` days (oldest first, today last) as raw mood values —
+    /// `nil` for a blank/unfilled day. Used for the medium widget's mini-preview.
+    static func recentDays(count: Int = 7, endingAt referenceDate: Date = Date()) -> [String?] {
+        let moods = loadStoredMoods()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: referenceDate)
+
+        return stride(from: count - 1, through: 0, by: -1).compactMap { offset -> String? in
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
+            return moods[key(for: day)]
+        }
     }
 }
 
@@ -92,11 +135,18 @@ struct EndarStreakEntry: TimelineEntry {
     let date: Date
     let streak: Int
     let isTodayFilled: Bool
+    /// Last 7 days, oldest first, today last. `nil` entries are blank days.
+    let recentDays: [String?]
 }
 
 struct EndarStreakProvider: TimelineProvider {
     func placeholder(in context: Context) -> EndarStreakEntry {
-        EndarStreakEntry(date: Date(), streak: 3, isTodayFilled: false)
+        EndarStreakEntry(
+            date: Date(),
+            streak: 3,
+            isTodayFilled: false,
+            recentDays: [nil, "work_productive", "work_productive", "personally_productive", "work_productive", "work_productive", nil]
+        )
     }
 
     func getSnapshot(in context: Context, completion: @escaping (EndarStreakEntry) -> Void) {
@@ -119,19 +169,76 @@ struct EndarStreakProvider: TimelineProvider {
         EndarStreakEntry(
             date: Date(),
             streak: EndarStreakReader.currentStreak(),
-            isTodayFilled: EndarStreakReader.isTodayFilled()
+            isTodayFilled: EndarStreakReader.isTodayFilled(),
+            recentDays: EndarStreakReader.recentDays()
         )
     }
 }
 
 // MARK: - View
 
+private struct MoodDotStrip: View {
+    let days: [String?]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(days.enumerated()), id: \.offset) { _, raw in
+                Circle()
+                    .fill(dotColor(for: raw))
+                    .frame(width: 10, height: 10)
+            }
+        }
+    }
+
+    private func dotColor(for raw: String?) -> Color {
+        guard let raw, let tint = EndarMoodColor.tint(forRawValue: raw) else {
+            return Color.secondary.opacity(0.25)
+        }
+        return tint
+    }
+}
+
 struct EndarStreakWidgetView: View {
+    @Environment(\.widgetFamily) private var family
     var entry: EndarStreakEntry
 
     var body: some View {
+        Group {
+            switch family {
+            case .systemMedium:
+                mediumBody
+            default:
+                smallBody
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    private var smallBody: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: "flame.fill")
+            streakHeader
+            Spacer(minLength: 0)
+            statusLine
+        }
+    }
+
+    private var mediumBody: some View {
+        HStack(alignment: .center, spacing: 20) {
+            streakHeader
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 10) {
+                MoodDotStrip(days: entry.recentDays)
+                statusLine
+            }
+        }
+    }
+
+    private var streakHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Image(systemName: entry.streak > 0 ? "flame.fill" : "flame")
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(entry.streak > 0 ? Color(red: 1.0, green: 0.36, blue: 0.0) : .secondary)
 
@@ -142,15 +249,13 @@ struct EndarStreakWidgetView: View {
             Text("day streak")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
-
-            Spacer(minLength: 0)
-
-            Text(entry.isTodayFilled ? "today done" : "tap to log today")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(entry.isTodayFilled ? .green : .orange)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    private var statusLine: some View {
+        Text(entry.isTodayFilled ? "today done" : "tap to log today")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(entry.isTodayFilled ? .green : .orange)
     }
 }
 
@@ -161,10 +266,11 @@ struct EndarStreakWidget: Widget {
         StaticConfiguration(kind: kind, provider: EndarStreakProvider()) { entry in
             EndarStreakWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
+                .widgetURL(URL(string: "productivitycal://log"))
         }
         .configurationDisplayName("streak")
-        .description("shows your current daily streak.")
-        .supportedFamilies([.systemSmall])
+        .description("shows your current daily streak, plus the last 7 days at a glance.")
+        .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
 

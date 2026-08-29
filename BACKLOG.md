@@ -13,10 +13,15 @@ gestire, indipendente da quale provider di login (Apple/Google) ha usato.
 Non banale: va implementato e testato con cura prima di spedirlo.
 
 ## 2. Widget home screen (streak)
-Preparato ma non collegato al progetto Xcode:
-- `WidgetExtensionSource.swift` (nella root del repo) contiene già il
-  codice completo del widget (streak + "today done/tap to log today"),
-  pronto da incollare in un nuovo target.
+Codice pronto, non ancora collegato al progetto Xcode:
+- `WidgetExtensionSource.swift` (nella root del repo) contiene il codice
+  completo: formato small (streak + stato "today done"/"tap to log
+  today") e formato medium (streak + mini-preview a pallini colorati
+  degli ultimi 7 giorni, stessa palette mood dell'app).
+- Tap sul widget apre l'app direttamente sulla home per loggare il mood
+  di oggi, via deep link `productivitycal://log` — già cablato lato app
+  principale (`Info.plist` + `onOpenURL` in `endarApp.swift` + ascolto in
+  `ContentView`), non serve altro lì.
 - Lo storage condiviso via App Group (`group.com.productivitycal.productivitycal`)
   è già configurato lato app principale, con fallback automatico.
 - Manca solo: creare il target "Widget Extension" in Xcode (File → New →
