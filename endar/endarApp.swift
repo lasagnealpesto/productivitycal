@@ -397,23 +397,51 @@ private struct LaunchSplashView: View {
         }
     }
 
+    /// Shown once in full the first time the app is opened each day; every
+    /// later same-day launch gets a quick fade instead so a multiple-times-
+    /// a-day habit app doesn't pay a ~2s animation tax on every open.
+    private static let lastShownDayKey = "launchSplash.lastShownDay.v1"
+
     @MainActor
     private func runAnimationIfNeeded() async {
         guard !hasStarted else { return }
         hasStarted = true
 
-        // 1) Pure black hold
-        try? await Task.sleep(nanoseconds: 260_000_000)
+        let defaults = UserDefaults.standard
+        let today = Calendar.current.startOfDay(for: Date())
+        let alreadyShownToday: Bool = {
+            guard let stored = defaults.object(forKey: Self.lastShownDayKey) as? Date else { return false }
+            return Calendar.current.isDate(stored, inSameDayAs: today)
+        }()
 
-        // 2) Logo emerges from black (opacity 0 -> 1 in ~1s)
-        withAnimation(.easeOut(duration: 1.0)) {
+        guard !alreadyShownToday else {
+            withAnimation(.easeOut(duration: 0.2)) {
+                logoBaseOpacity = 1.0
+                logoScale = 1.0
+            }
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            withAnimation(.easeInOut(duration: 0.18)) {
+                containerOpacity = 0.0
+            }
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            onFinished()
+            return
+        }
+
+        defaults.set(today, forKey: Self.lastShownDayKey)
+
+        // 1) Pure black hold
+        try? await Task.sleep(nanoseconds: 150_000_000)
+
+        // 2) Logo emerges from black
+        withAnimation(.easeOut(duration: 0.55)) {
             logoBaseOpacity = 1.0
             logoScale = 1.0
         }
 
         // 3) Start glow earlier while logo fade-in is still progressing
-        try? await Task.sleep(nanoseconds: 700_000_000)
-        withAnimation(.easeInOut(duration: 0.90)) {
+        try? await Task.sleep(nanoseconds: 380_000_000)
+        withAnimation(.easeInOut(duration: 0.5)) {
             logoGlow = 0.34
             logoBloomOpacity = 0.64
             logoBloomBlur = 14.0
@@ -421,14 +449,14 @@ private struct LaunchSplashView: View {
             logoSpecularOpacity = 0.24
         }
 
-        try? await Task.sleep(nanoseconds: 700_000_000)
+        try? await Task.sleep(nanoseconds: 380_000_000)
 
         // 4) Dissolve to home
-        withAnimation(.easeInOut(duration: 0.28)) {
+        withAnimation(.easeInOut(duration: 0.22)) {
             containerOpacity = 0.0
         }
 
-        try? await Task.sleep(nanoseconds: 280_000_000)
+        try? await Task.sleep(nanoseconds: 220_000_000)
         onFinished()
     }
 }
@@ -440,15 +468,52 @@ private struct LoginView: View {
     let isGoogleSigningIn: Bool
 
     private let backgroundColor = Color(hex: 0x333333)
+    private let logoName = "splash-logo"
+
+    private var brandLogoImage: UIImage? {
+        if let named = UIImage(named: logoName) {
+            return named
+        }
+        guard let path = Bundle.main.path(forResource: logoName, ofType: "png") else {
+            return nil
+        }
+        return UIImage(contentsOfFile: path)
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let maxContentWidth = min(proxy.size.width - 32, 440)
-            let topSpacing = max(proxy.size.height * 0.18, 110)
+            let topSpacing = max(proxy.size.height * 0.12, 72)
             let bottomSpacing = max(proxy.size.height * 0.14, 84)
 
             VStack(spacing: 0) {
                 Spacer(minLength: topSpacing)
+
+                VStack(spacing: 12) {
+                    Group {
+                        if let brandLogoImage {
+                            Image(uiImage: brandLogoImage)
+                                .renderingMode(.template)
+                                .resizable()
+                                .scaledToFit()
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                        } else {
+                            Text("productivitycal")
+                                .font(.system(size: 28, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white)
+                                .tracking(0.6)
+                        }
+                    }
+
+                    Text("your days, tracked. your life, under control.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: maxContentWidth)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 36)
 
                 VStack(spacing: 14) {
                     LiquidGlassSSOButton(
