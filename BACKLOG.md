@@ -14,14 +14,17 @@ Formato small (streak + stato) e medium (streak + mini-preview 7 giorni)
 entrambi funzionanti; tap sul widget apre l'app sulla home via deep link
 `productivitycal://log`.
 
-## 3. Automazione wallpaper con meno step
-Oggi il setup richiede ~12 passaggi manuali in Shortcuts (tutorial con
-screenshot). Idea per ridurlo a 2-3 tap: generare un file `.shortcut`
-precompilato che l'utente importa con un tap, con azione e trigger già
-dentro — l'utente conferma solo alla fine invece di costruire tutto a
-mano. iOS non permette di creare l'Automazione Personale in modo del
-tutto invisibile (serve comunque un passaggio in Shortcuts la prima
-volta), ma si può ridurre drasticamente il lavoro manuale.
+## 3. Automazione wallpaper con meno step — ✅ FATTO
+Da 12 step manuali a 8: aggiunto un primo step "importa la shortcut
+pronta" che apre un link iCloud (la shortcut con le due azioni "generate
+wallpaper" → "set wallpaper photo" già collegate e "lock screen" già
+scelto, condivisa una volta da Shortcuts, non generata a mano — niente
+formato binario indovinato). I vecchi step 6-11 (cercare e collegare le
+azioni a mano) sono sostituiti da un solo step testuale: "aggiungi
+l'azione 'Esegui Shortcut' e scegli quella importata". Il link vive in
+`WallpaperSetupGuideContent.importShortcutURL` (`endar/ContentView.swift`).
+Se in futuro cambia qualcosa nelle azioni sottostanti, va rifatta la
+shortcut condivisa e aggiornato quel link.
 
 ## 4. Icona dell'app
 L'icona attuale (freccia + scintilla) viene dal progetto originale
