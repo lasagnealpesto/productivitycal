@@ -83,18 +83,43 @@ struct ContentView: View {
     let onDeleteAccount: () -> Void
 
     @State private var selectedTab: Tab = .home
+    @State private var tabDragOffset: CGFloat = 0
     @StateObject private var moodStore = MoodStore()
     @AppStorage("theme.mode.v1") private var themeRaw: String = AppTheme.dark.rawValue
 
     enum Tab: CaseIterable { case home, calendar, set }
 
-    private func stepTab(by delta: Int) {
+    private static let tabSwipeSettle = Animation.interpolatingSpring(stiffness: 300, damping: 30)
+
+    /// Slides the current tab out — continuing smoothly from wherever `tabDragOffset`
+    /// already is (e.g. mid-drag) — then swaps to the new tab and slides it in from
+    /// the opposite side. Mirrors `CalendarView.swipeToMonth`. Bounces back in place
+    /// at the first/last tab instead of sliding off into nothing.
+    private func swipeToTab(delta: Int, containerWidth: CGFloat) {
         let all = Tab.allCases
         guard let currentIndex = all.firstIndex(of: selectedTab) else { return }
         let newIndex = currentIndex + delta
-        guard all.indices.contains(newIndex) else { return }
-        withAnimation(.easeInOut(duration: 0.2)) {
+
+        guard all.indices.contains(newIndex) else {
+            withAnimation(Self.tabSwipeSettle) {
+                tabDragOffset = 0
+            }
+            return
+        }
+
+        let travel = max(containerWidth, 320)
+        let exitOffset: CGFloat = delta > 0 ? -travel : travel
+
+        withAnimation(Self.tabSwipeSettle) {
+            tabDragOffset = exitOffset
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
             selectedTab = all[newIndex]
+            tabDragOffset = -exitOffset
+            withAnimation(Self.tabSwipeSettle) {
+                tabDragOffset = 0
+            }
         }
     }
 
@@ -115,46 +140,66 @@ struct ContentView: View {
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            HomeView(
-                palette: palette,
-                onLogout: onLogout,
-                onDeleteAccount: onDeleteAccount
-            )
-                .environmentObject(moodStore)
-                .tabItem {
-                    Label("home", systemImage: "house")
-                }
-                .tag(Tab.home)
-
-            CalendarView(themeRaw: $themeRaw, palette: palette)
-                .environmentObject(moodStore)
-                .tabItem {
-                    Label("calendar", systemImage: "calendar")
-                }
-                .tag(Tab.calendar)
-
-            SetView(themeRaw: $themeRaw, palette: palette)
-                .tabItem {
-                    Label("set", systemImage: "slider.horizontal.3")
-                }
-                .tag(Tab.set)
-        }
-        .tint(palette.accent)
-        .toolbarBackground(palette.surface, for: .tabBar)
-        .toolbarBackground(.visible, for: .tabBar)
-        .preferredColorScheme(theme == .dark ? .dark : .light)
-        .gesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { value in
-                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                    if value.translation.width < -60 {
-                        stepTab(by: 1)
-                    } else if value.translation.width > 60 {
-                        stepTab(by: -1)
+        GeometryReader { geometry in
+            TabView(selection: $selectedTab) {
+                HomeView(
+                    palette: palette,
+                    onLogout: onLogout,
+                    onDeleteAccount: onDeleteAccount
+                )
+                    .environmentObject(moodStore)
+                    .tabItem {
+                        Label("home", systemImage: "house")
                     }
-                }
-        )
+                    .tag(Tab.home)
+
+                CalendarView(themeRaw: $themeRaw, palette: palette)
+                    .environmentObject(moodStore)
+                    .tabItem {
+                        Label("calendar", systemImage: "calendar")
+                    }
+                    .tag(Tab.calendar)
+
+                SetView(themeRaw: $themeRaw, palette: palette)
+                    .tabItem {
+                        Label("set", systemImage: "slider.horizontal.3")
+                    }
+                    .tag(Tab.set)
+            }
+            .tint(palette.accent)
+            .toolbarBackground(palette.surface, for: .tabBar)
+            .toolbarBackground(.visible, for: .tabBar)
+            .preferredColorScheme(theme == .dark ? .dark : .light)
+            .offset(x: tabDragOffset)
+            .clipped()
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { value in
+                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                        tabDragOffset = value.translation.width
+                    }
+                    .onEnded { value in
+                        guard abs(value.translation.width) > abs(value.translation.height) else {
+                            withAnimation(Self.tabSwipeSettle) {
+                                tabDragOffset = 0
+                            }
+                            return
+                        }
+                        let threshold: CGFloat = 60
+                        let predicted = value.predictedEndTranslation.width
+                        if value.translation.width < -threshold || predicted < -geometry.size.width * 0.3 {
+                            swipeToTab(delta: 1, containerWidth: geometry.size.width)
+                        } else if value.translation.width > threshold || predicted > geometry.size.width * 0.3 {
+                            swipeToTab(delta: -1, containerWidth: geometry.size.width)
+                        } else {
+                            withAnimation(Self.tabSwipeSettle) {
+                                tabDragOffset = 0
+                            }
+                        }
+                    }
+            )
+        }
     }
 }
 
@@ -735,6 +780,7 @@ private struct CalendarView: View {
     @State private var selectedMonth: Int
     @State private var isShowingQuickFill = false
     @State private var dragOffset: CGFloat = 0
+    @State private var calendarWidth: CGFloat = 350
 
     private let calendar = Calendar.current
 
@@ -780,21 +826,24 @@ private struct CalendarView: View {
         selectedYear = newYear
     }
 
+    private static let monthSwipeSettle = Animation.interpolatingSpring(stiffness: 300, damping: 30)
+
     /// Slides the current month out — continuing smoothly from wherever `dragOffset`
     /// already is (e.g. mid-drag) — then swaps to the new month and slides it in
-    /// from the opposite side.
+    /// from the opposite side. The exit distance tracks the actual grid width so the
+    /// old month always fully leaves the screen instead of jumping a fixed distance.
     private func swipeToMonth(delta: Int) {
-        let exitDistance: CGFloat = 500
-        let exitOffset: CGFloat = delta > 0 ? -exitDistance : exitDistance
+        let travel = max(calendarWidth, 280)
+        let exitOffset: CGFloat = delta > 0 ? -travel : travel
 
-        withAnimation(.easeIn(duration: 0.16)) {
+        withAnimation(Self.monthSwipeSettle) {
             dragOffset = exitOffset
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
             stepMonth(by: delta)
             dragOffset = -exitOffset
-            withAnimation(.easeOut(duration: 0.24)) {
+            withAnimation(Self.monthSwipeSettle) {
                 dragOffset = 0
             }
         }
@@ -892,19 +941,32 @@ private struct CalendarView: View {
                         .offset(x: dragOffset)
                         .clipped()
                         .contentShape(Rectangle())
-                        .gesture(
+                        .background(
+                            GeometryReader { geometry in
+                                Color.clear
+                                    .onAppear { calendarWidth = geometry.size.width }
+                                    .onChange(of: geometry.size.width) { _, newWidth in
+                                        calendarWidth = newWidth
+                                    }
+                            }
+                        )
+                        // highPriorityGesture wins deterministically over the tab-swipe
+                        // gesture on the ancestor ContentView, instead of racing it.
+                        .highPriorityGesture(
                             DragGesture(minimumDistance: 8)
                                 .onChanged { value in
+                                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
                                     dragOffset = value.translation.width
                                 }
                                 .onEnded { value in
                                     let threshold: CGFloat = 50
-                                    if value.translation.width < -threshold {
+                                    let predicted = value.predictedEndTranslation.width
+                                    if value.translation.width < -threshold || predicted < -calendarWidth * 0.3 {
                                         swipeToMonth(delta: 1)
-                                    } else if value.translation.width > threshold {
+                                    } else if value.translation.width > threshold || predicted > calendarWidth * 0.3 {
                                         swipeToMonth(delta: -1)
                                     } else {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                        withAnimation(Self.monthSwipeSettle) {
                                             dragOffset = 0
                                         }
                                     }
