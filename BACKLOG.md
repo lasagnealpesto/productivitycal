@@ -72,3 +72,15 @@ Le screenshot attuali su App Store Connect sono da rifare/arricchire:
    il copy esatto e lo stile grafico (testo overlay su mockup del telefono).
 3. **Screenshot della notifica**: mostrare la notifica giornaliera (18:00)
    com'è realmente su schermo, per comunicare il reminder automatico.
+
+## 8. Login + backend vero, dati legati al profilo
+Oggi il login (Apple/Google) esiste ma i dati restano locali sul
+dispositivo (vedi punto 1) — non c'è un vero account nel senso di "i miei
+dati mi seguono ovunque faccio login". Da fare: backend con database
+(es. Supabase/Firebase) dove ogni utente autenticato ha il proprio storico
+mood salvato lato server, associato al suo account — non più legato al
+singolo iPhone/App Group locale. Alternativa più leggera al punto 1
+(iCloud): qui il vantaggio è che funziona anche se in futuro l'app girasse
+su più piattaforme o l'utente cambiasse provider di login. Da valutare
+insieme a quale via scegliere (iCloud-only vs backend proprio) prima di
+implementare — sono due strade diverse, non serve farle entrambe.
