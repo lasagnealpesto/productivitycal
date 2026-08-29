@@ -85,6 +85,7 @@ struct ContentView: View {
     @State private var selectedTab: Tab = .home
     @StateObject private var moodStore = MoodStore()
     @AppStorage("theme.mode.v1") private var themeRaw: String = AppTheme.dark.rawValue
+    @AppStorage("onboarding.hasSeenIntro.v1") private var hasSeenIntro = false
 
     enum Tab { case home, calendar, set }
 
@@ -134,6 +135,77 @@ struct ContentView: View {
         .toolbarBackground(palette.surface, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .preferredColorScheme(theme == .dark ? .dark : .light)
+        .sheet(isPresented: Binding(
+            get: { !hasSeenIntro },
+            set: { isPresented in hasSeenIntro = !isPresented }
+        )) {
+            OnboardingView(palette: palette) {
+                hasSeenIntro = true
+            }
+            .preferredColorScheme(theme == .dark ? .dark : .light)
+            .presentationDetents([.medium])
+            .interactiveDismissDisabled()
+        }
+    }
+}
+
+private struct OnboardingView: View {
+    let palette: AppPalette
+    let onDone: () -> Void
+
+    private let items: [(icon: String, title: String, description: String)] = [
+        ("house", "home", "log how your day went — work, personal, or not productive."),
+        ("calendar", "calendar", "see your year fill in, day by day, and catch up on days you missed."),
+        ("slider.horizontal.3", "set", "turn your year into a wallpaper that updates itself.")
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text("welcome to productivitycal")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(palette.textPrimary)
+
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(items, id: \.title) { item in
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: item.icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(palette.textPrimary)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(palette.textPrimary)
+
+                            Text(item.description)
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(palette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onDone) {
+                Text("got it")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(palette.background)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(palette.textPrimary)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(24)
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(palette.background.ignoresSafeArea())
     }
 }
 
@@ -424,7 +496,7 @@ private struct HomeView: View {
     private let today = Date()
     @State private var showConfirmAction = false
     @State private var pendingAccountAction: AccountAction?
-    @State private var revealedMood: Mood?
+    @State private var confirmingMood: Mood?
 
     var body: some View {
         NavigationStack {
@@ -460,7 +532,9 @@ private struct HomeView: View {
                         MoodOptionCard(
                             mood: mood,
                             isSelected: moodStore.mood(for: today) == mood,
-                            palette: palette
+                            palette: palette,
+                            isConfirming: confirmingMood == mood,
+                            confirmationMessage: confirmationMessage(for: mood)
                         ) {
                             selectMood(mood)
                         }
@@ -493,25 +567,23 @@ private struct HomeView: View {
                 Text(action.confirmMessage)
             }
         }
-        .fullScreenCover(item: $revealedMood) { mood in
-            MoodRevealOverlay(mood: mood) {
-                revealedMood = nil
-            }
-        }
     }
 
     private func selectMood(_ mood: Mood) {
         moodStore.setMood(mood, for: today)
         Haptics.success()
-        revealedMood = mood
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            confirmingMood = mood
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                confirmingMood = nil
+            }
+        }
     }
-}
 
-private struct MoodRevealOverlay: View {
-    let mood: Mood
-    let onDismiss: () -> Void
-
-    private var message: String {
+    private func confirmationMessage(for mood: Mood) -> String {
         switch mood {
         case .workProductive:
             return "you killed it today"
@@ -521,35 +593,12 @@ private struct MoodRevealOverlay: View {
             return "you'll catch up tomorrow — i believe in you"
         }
     }
-
-    var body: some View {
-        ZStack {
-            mood.tint.ignoresSafeArea()
-
-            VStack(spacing: 20) {
-                Image(systemName: mood.systemImage)
-                    .font(.system(size: 56, weight: .bold))
-                    .foregroundStyle(.white)
-
-                Text(message)
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { onDismiss() }
-        .task {
-            try? await Task.sleep(nanoseconds: 1_800_000_000)
-            onDismiss()
-        }
-    }
 }
 
 private struct StreakBadge: View {
     let streak: Int
     let palette: AppPalette
+    @State private var pulse = false
 
     var body: some View {
         HStack(spacing: 5) {
@@ -569,7 +618,18 @@ private struct StreakBadge: View {
             Capsule()
                 .stroke(palette.border, lineWidth: 1)
         )
+        .scaleEffect(pulse ? 1.2 : 1.0)
         .accessibilityLabel("\(streak) day streak")
+        .onChange(of: streak) { _, _ in
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+                pulse = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    pulse = false
+                }
+            }
+        }
     }
 }
 
@@ -609,34 +669,23 @@ private struct MoodOptionCard: View {
     let mood: Mood
     let isSelected: Bool
     let palette: AppPalette
+    let isConfirming: Bool
+    let confirmationMessage: String
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .center, spacing: 12) {
-                    MoodIconPill(mood: mood, palette: palette)
+            ZStack {
+                normalContent
+                    .opacity(isConfirming ? 0 : 1)
 
-                    Spacer()
-
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 21, weight: .semibold))
-                        .foregroundStyle(isSelected ? mood.tint : palette.textSecondary.opacity(0.7))
-                        .frame(width: 26, height: 26)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(mood.title)
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(palette.textPrimary)
-
-                    Text(mood.subtitle)
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(palette.textSecondary)
-                        .lineSpacing(1.2)
-                        .multilineTextAlignment(.leading)
-                }
-                .padding(.leading, 2)
+                Text(confirmationMessage)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .opacity(isConfirming ? 1 : 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(minHeight: 112, alignment: .center)
@@ -657,14 +706,44 @@ private struct MoodOptionCard: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(mood.tint.opacity(isSelected ? 0.20 : 0.08))
+                    .fill(mood.tint.opacity(isConfirming ? 1 : (isSelected ? 0.20 : 0.08)))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(isSelected ? mood.tint.opacity(0.95) : palette.border, lineWidth: isSelected ? 1.6 : 1)
+                    .stroke(isSelected || isConfirming ? mood.tint.opacity(0.95) : palette.border, lineWidth: isSelected || isConfirming ? 1.6 : 1)
             )
+            .scaleEffect(isConfirming ? 1.03 : 1.0)
         }
         .buttonStyle(.plain)
+    }
+
+    private var normalContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                MoodIconPill(mood: mood, palette: palette)
+
+                Spacer()
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(isSelected ? mood.tint : palette.textSecondary.opacity(0.7))
+                    .frame(width: 26, height: 26)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(mood.title)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(palette.textPrimary)
+
+                Text(mood.subtitle)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(palette.textSecondary)
+                    .lineSpacing(1.2)
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(.leading, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -805,6 +884,26 @@ private struct CalendarView: View {
                             }
                         }
                     }
+                    .overlay(
+                        HStack(spacing: 0) {
+                            LinearGradient(
+                                colors: [palette.background, palette.background.opacity(0)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 18)
+
+                            Spacer(minLength: 0)
+
+                            LinearGradient(
+                                colors: [palette.background.opacity(0), palette.background],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 18)
+                        }
+                        .allowsHitTesting(false)
+                    )
 
                     calendarGrid
 
@@ -1169,58 +1268,41 @@ private enum WallpaperDotShapeOption: String, CaseIterable, Identifiable {
     }
 }
 
+enum WallpaperSetupStepContent {
+    case screenshot(imageName: String)
+    case completion
+}
+
 struct WallpaperSetupStep: Identifiable {
     let id: Int
-    let title: String
-    let description: String
-    let imageName: String
+    let content: WallpaperSetupStepContent
 }
 
 enum WallpaperSetupGuideContent {
-    static let steps: [WallpaperSetupStep] = [
-        WallpaperSetupStep(
-            id: 0,
-            title: "open shortcuts",
-            description: "Create a new personal automation and choose the wallpaper trigger to start the setup.",
-            imageName: "PHOTO-2026-04-15-16-59-29.jpg"
-        ),
-        WallpaperSetupStep(
-            id: 1,
-            title: "pick the trigger",
-            description: "Select the wallpaper automation option shown in the screenshot so the shortcut runs at the right moment.",
-            imageName: "PHOTO-2026-04-15-16-59-29-2.jpg"
-        ),
-        WallpaperSetupStep(
-            id: 2,
-            title: "choose endar",
-            description: "Search for the endar action and add it to the automation flow before saving.",
-            imageName: "PHOTO-2026-04-15-16-59-29-3.jpg"
-        ),
-        WallpaperSetupStep(
-            id: 3,
-            title: "set the input",
-            description: "Configure the action with the right wallpaper period and keep the automation focused on your selected device.",
-            imageName: "PHOTO-2026-04-15-16-59-29-4.jpg"
-        ),
-        WallpaperSetupStep(
-            id: 4,
-            title: "disable confirmation",
-            description: "Turn off any extra confirmation step so the wallpaper change can run automatically in the background.",
-            imageName: "PHOTO-2026-04-15-16-59-29-5.jpg"
-        ),
-        WallpaperSetupStep(
-            id: 5,
-            title: "review the flow",
-            description: "Double-check the final automation screen and confirm every step looks like the reference image.",
-            imageName: "PHOTO-2026-04-15-16-59-29-6.jpg"
-        ),
-        WallpaperSetupStep(
-            id: 6,
-            title: "save and test",
-            description: "Save the automation, run one quick test swipe through the year, and then use set wallpaper whenever you want.",
-            imageName: "PHOTO-2026-04-15-16-59-30.jpg"
-        )
-    ]
+    /// Drop the 12 annotated screenshot files into endar/screenshots with these exact
+    /// names (in this order) to complete the tutorial — no other code change needed.
+    static let steps: [WallpaperSetupStep] = {
+        let imageNames = [
+            "wallpaper-setup-01.jpg",
+            "wallpaper-setup-02.jpg",
+            "wallpaper-setup-03.jpg",
+            "wallpaper-setup-04.jpg",
+            "wallpaper-setup-05.jpg",
+            "wallpaper-setup-06.jpg",
+            "wallpaper-setup-07.jpg",
+            "wallpaper-setup-08.jpg",
+            "wallpaper-setup-09.jpg",
+            "wallpaper-setup-10.jpg",
+            "wallpaper-setup-11.jpg",
+            "wallpaper-setup-12.jpg"
+        ]
+
+        var steps = imageNames.enumerated().map { index, name in
+            WallpaperSetupStep(id: index, content: .screenshot(imageName: name))
+        }
+        steps.append(WallpaperSetupStep(id: imageNames.count, content: .completion))
+        return steps
+    }()
 }
 
 private struct SetView: View {
@@ -1479,12 +1561,12 @@ private struct SetView: View {
             showWallpaperGuide = true
         } label: {
             Text("set wallpaper")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(palette.background)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .padding(.vertical, 20)
                 .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(palette.textPrimary)
                 )
         }
@@ -1522,23 +1604,25 @@ private struct WallpaperSetupStepCard: View {
     let palette: AppPalette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            WallpaperSetupScreenshot(imageName: step.imageName, palette: palette)
+        switch step.content {
+        case .screenshot(let imageName):
+            WallpaperSetupScreenshot(imageName: imageName, palette: palette)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(step.title)
-                    .font(.system(size: 22, weight: .bold))
+                .padding(.horizontal, 4)
+        case .completion:
+            VStack(spacing: 20) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 56, weight: .bold))
                     .foregroundStyle(palette.textPrimary)
 
-                Text(step.description)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text("you're all set — now you can start having your life under control.")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(palette.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 4)
     }
 }
 

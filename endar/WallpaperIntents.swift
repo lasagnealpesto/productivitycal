@@ -24,27 +24,27 @@ struct WallpaperAutomationGuideView: View {
         theme.palette
     }
 
+    private var steps: [WallpaperSetupStep] { WallpaperSetupGuideContent.steps }
+    private var isOnLastStep: Bool { selectedWallpaperSetupStep == steps.count - 1 }
+    private var progress: Double {
+        guard steps.count > 1 else { return 1 }
+        return Double(selectedWallpaperSetupStep + 1) / Double(steps.count)
+    }
+
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("setup instructions")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(palette.textPrimary)
-
-                    Text("swipe through each step, then open shortcuts when you're ready to set it up.")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 24)
-                .padding(.bottom, 20)
+                Text("setup instructions")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(palette.textPrimary)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 24)
+                    .padding(.bottom, 16)
 
                 WallpaperSetupCarousel(
                     palette: palette,
                     selectedStep: $selectedWallpaperSetupStep,
-                    steps: WallpaperSetupGuideContent.steps
+                    steps: steps
                 )
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -55,28 +55,49 @@ struct WallpaperAutomationGuideView: View {
             )
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 14) {
-                    HStack(spacing: 8) {
-                        ForEach(WallpaperSetupGuideContent.steps) { step in
-                            Circle()
-                                .fill(step.id == selectedWallpaperSetupStep ? palette.textPrimary : palette.border)
-                                .frame(width: step.id == selectedWallpaperSetupStep ? 9 : 7, height: step.id == selectedWallpaperSetupStep ? 9 : 7)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(palette.border)
+                            .frame(height: 6)
 
-                    Button {
-                        openShortcuts()
-                    } label: {
-                        Text("open shortcuts")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(palette.background)
-                            .frame(maxWidth: .infinity, minHeight: 50)
+                        GeometryReader { proxy in
+                            Capsule()
+                                .fill(palette.textPrimary)
+                                .frame(width: proxy.size.width * progress, height: 6)
+                                .animation(.easeOut(duration: 0.25), value: progress)
+                        }
+                        .frame(height: 6)
                     }
-                    .buttonStyle(.plain)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(palette.textPrimary)
-                    )
+
+                    if isOnLastStep {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Text("done")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(palette.background)
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                        }
+                        .buttonStyle(.plain)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(palette.textPrimary)
+                        )
+                    } else {
+                        Button {
+                            openShortcuts()
+                        } label: {
+                            Text("open shortcuts")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(palette.background)
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                        }
+                        .buttonStyle(.plain)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(palette.textPrimary)
+                        )
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
