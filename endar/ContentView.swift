@@ -85,7 +85,6 @@ struct ContentView: View {
     @State private var selectedTab: Tab = .home
     @StateObject private var moodStore = MoodStore()
     @AppStorage("theme.mode.v1") private var themeRaw: String = AppTheme.dark.rawValue
-    @AppStorage("onboarding.hasSeenIntro.v1") private var hasSeenIntro = false
 
     enum Tab { case home, calendar, set }
 
@@ -135,77 +134,6 @@ struct ContentView: View {
         .toolbarBackground(palette.surface, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .preferredColorScheme(theme == .dark ? .dark : .light)
-        .sheet(isPresented: Binding(
-            get: { !hasSeenIntro },
-            set: { isPresented in hasSeenIntro = !isPresented }
-        )) {
-            OnboardingView(palette: palette) {
-                hasSeenIntro = true
-            }
-            .preferredColorScheme(theme == .dark ? .dark : .light)
-            .presentationDetents([.medium])
-            .interactiveDismissDisabled()
-        }
-    }
-}
-
-private struct OnboardingView: View {
-    let palette: AppPalette
-    let onDone: () -> Void
-
-    private let items: [(icon: String, title: String, description: String)] = [
-        ("house", "home", "log how your day went — work, personal, or not productive."),
-        ("calendar", "calendar", "see your year fill in, day by day, and catch up on days you missed."),
-        ("slider.horizontal.3", "set", "turn your year into a wallpaper that updates itself.")
-    ]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Text("welcome to productivitycal")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(palette.textPrimary)
-
-            VStack(alignment: .leading, spacing: 18) {
-                ForEach(items, id: \.title) { item in
-                    HStack(alignment: .top, spacing: 14) {
-                        Image(systemName: item.icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(palette.textPrimary)
-                            .frame(width: 28)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(palette.textPrimary)
-
-                            Text(item.description)
-                                .font(.system(size: 14, weight: .regular))
-                                .foregroundStyle(palette.textSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            Button(action: onDone) {
-                Text("got it")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(palette.background)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(palette.textPrimary)
-                    )
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(24)
-        .padding(.top, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(palette.background.ignoresSafeArea())
     }
 }
 
@@ -299,16 +227,14 @@ final class MoodStore: ObservableObject {
         DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
     }
 
-    /// Fills every blank day in `dates` that is today or earlier with `mood`,
-    /// leaving already-filled days untouched. For quickly catching up on past days.
-    func fillBlankPastDays(_ dates: [Date], with mood: Mood) {
+    /// Sets every day in `dates` that is today or earlier to `mood`, overwriting
+    /// any existing value. For quickly filling in a whole month at once.
+    func fillPastDays(_ dates: [Date], with mood: Mood) {
         let today = calendar.startOfDay(for: Date())
         for date in dates {
             let day = calendar.startOfDay(for: date)
             guard day <= today else { continue }
-            let dayKey = key(for: day)
-            guard moods[dayKey] == nil else { continue }
-            moods[dayKey] = mood
+            moods[key(for: day)] = mood
         }
         save()
         DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
@@ -691,22 +617,23 @@ private struct MoodOptionCard: View {
             .frame(minHeight: 112, alignment: .center)
             .padding(16)
             .background(
-                Group {
-                    if #available(iOS 26.0, *) {
-                        Color.clear
-                            .glassEffect(
-                                .regular.tint(palette.background.opacity(0.08)),
-                                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            )
-                    } else {
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(.ultraThinMaterial)
+                ZStack {
+                    Group {
+                        if #available(iOS 26.0, *) {
+                            Color.clear
+                                .glassEffect(
+                                    .regular.tint(palette.background.opacity(0.08)),
+                                    in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                )
+                        } else {
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                        }
                     }
+
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(mood.tint.opacity(isConfirming ? 1 : (isSelected ? 0.20 : 0.08)))
                 }
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(mood.tint.opacity(isConfirming ? 1 : (isSelected ? 0.20 : 0.08)))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -807,10 +734,28 @@ private struct CalendarView: View {
         return Array((current - 5)...(current + 1)).reversed()
     }
 
-    private var monthSymbols: [String] {
+    private var selectedMonthName: String {
         let formatter = DateFormatter()
         formatter.locale = Locale.current
-        return formatter.shortMonthSymbols.map { $0.lowercased() }
+        let names = formatter.monthSymbols ?? []
+        guard selectedMonth >= 1, selectedMonth <= names.count else { return "" }
+        return names[selectedMonth - 1].lowercased()
+    }
+
+    private func stepMonth(by delta: Int) {
+        var newMonth = selectedMonth + delta
+        var newYear = selectedYear
+
+        if newMonth > 12 {
+            newMonth = 1
+            newYear += 1
+        } else if newMonth < 1 {
+            newMonth = 12
+            newYear -= 1
+        }
+
+        selectedMonth = newMonth
+        selectedYear = newYear
     }
 
     private var weekdaySymbols: [String] {
@@ -824,8 +769,7 @@ private struct CalendarView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 16) {
                     HStack {
                         Spacer()
 
@@ -863,47 +807,44 @@ private struct CalendarView: View {
                     }
                     .accessibilityLabel("select year")
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(Array(monthSymbols.enumerated()), id: \.offset) { idx, name in
-                                let month = idx + 1
-                                Button {
-                                    selectedMonth = month
-                                } label: {
-                                    Text(name)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundStyle(selectedMonth == month ? palette.background : palette.textPrimary)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                .fill(selectedMonth == month ? palette.textPrimary : palette.surface)
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            }
+                    HStack(spacing: 16) {
+                        Button {
+                            stepMonth(by: -1)
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(palette.textPrimary)
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(palette.surface)
+                                )
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("previous month")
+
+                        Text(selectedMonthName)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(palette.textPrimary)
+                            .frame(minWidth: 110)
+                            .multilineTextAlignment(.center)
+
+                        Button {
+                            stepMonth(by: 1)
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(palette.textPrimary)
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(palette.surface)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("next month")
                     }
-                    .overlay(
-                        HStack(spacing: 0) {
-                            LinearGradient(
-                                colors: [palette.background, palette.background.opacity(0)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                            .frame(width: 18)
-
-                            Spacer(minLength: 0)
-
-                            LinearGradient(
-                                colors: [palette.background.opacity(0), palette.background],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                            .frame(width: 18)
-                        }
-                        .allowsHitTesting(false)
-                    )
+                    .frame(maxWidth: .infinity, alignment: .center)
 
                     calendarGrid
 
@@ -918,7 +859,7 @@ private struct CalendarView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "wand.and.stars")
-                            Text("quick fill blank days this month")
+                            Text("quick fill this month")
                         }
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(palette.textPrimary)
@@ -938,30 +879,20 @@ private struct CalendarView: View {
                         MoodColorPicker(palette: palette, includeBlank: false) { picked in
                             if let picked {
                                 Haptics.light()
-                                moodStore.fillBlankPastDays(monthDates, with: picked)
+                                moodStore.fillPastDays(monthDates, with: picked)
                             }
                             isShowingQuickFill = false
                         }
                         .presentationCompactAdaptation(.popover)
                     }
 
-                    calendarProgressSection
-                        .padding(.top, 26)
-                        .padding(.bottom, 28)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 24)
-                .padding(.bottom, 24)
+                    Spacer(minLength: 0)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 24)
+            .padding(.bottom, 24)
             .background(BackgroundView(palette: palette))
         }
-    }
-
-    private var monthProgress: Double {
-        let days = monthDates
-        guard !days.isEmpty else { return 0 }
-        let completed = days.filter { moodStore.mood(for: $0) != nil }.count
-        return Double(completed) / Double(days.count)
     }
 
     private var monthDates: [Date] {
@@ -1039,25 +970,6 @@ private struct CalendarView: View {
             LegendDot(label: "blank", color: .clear, palette: palette, outlined: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var calendarProgressSection: some View {
-        VStack(spacing: 12) {
-            Text("\(Int(round(monthProgress * 100)))%")
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(palette.textPrimary)
-
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(palette.textPrimary.opacity(0.22))
-                    .frame(width: 240, height: 8)
-
-                Capsule()
-                    .fill(palette.textPrimary.opacity(0.92))
-                    .frame(width: max(12, 240 * monthProgress), height: 8)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func isFutureDate(_ date: Date) -> Bool {

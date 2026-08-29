@@ -13,16 +13,11 @@ import UIKit
 
 struct WallpaperAutomationGuideView: View {
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("theme.mode.v1") private var themeRaw: String = AppTheme.dark.rawValue
     @State private var selectedWallpaperSetupStep = 0
 
-    private var theme: AppTheme {
-        AppTheme(rawValue: themeRaw) ?? .dark
-    }
-
-    private var palette: AppPalette {
-        theme.palette
-    }
+    // Always matches the dark background baked into the tutorial screenshots,
+    // regardless of the user's light/dark theme setting.
+    private let palette = AppTheme.dark.palette
 
     private var steps: [WallpaperSetupStep] { WallpaperSetupGuideContent.steps }
     private var isOnLastStep: Bool { selectedWallpaperSetupStep == steps.count - 1 }
@@ -55,6 +50,11 @@ struct WallpaperAutomationGuideView: View {
             )
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 14) {
+                    Text("step \(selectedWallpaperSetupStep + 1) of \(steps.count)")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(palette.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
                     ZStack(alignment: .leading) {
                         Capsule()
                             .fill(palette.border)
