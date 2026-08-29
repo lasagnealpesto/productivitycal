@@ -65,5 +65,36 @@ import the CSV into Airtable/Sheets later.
 - No email in bio is normal — most creators expect first contact via TikTok
   DM or a comment, not email. Treat `email` as a bonus fast-path, not the
   primary channel.
-- This only does discovery, not outreach. Message drafting/sending is a
-  separate step (see the productivity-content automation discussion).
+- This only does discovery, not sending. Outreach drafting is a separate
+  step, below.
+
+## Outreach drafts (`draft_outreach_messages.py`)
+
+Takes the CSV from discovery and drafts one personalized outreach message
+per creator with Claude (referencing their actual niche/bio, never a
+generic opener). It only writes drafts — nothing is sent automatically.
+
+```bash
+export ANTHROPIC_API_KEY=your_key   # or `ant auth login`
+python draft_outreach_messages.py \
+  --input creators.csv \
+  --product-name "Endar" \
+  --offer "3 months free Premium + a $50-100 flat fee depending on your views" \
+  --ask "one organic 15-30s TikTok showing how you'd actually use a productivity/calendar app in your daily routine" \
+  --cta "reply and I'll send over the full brief" \
+  --limit 20
+```
+
+- Only drafts for rows with `status == new` by default (`--only-status ''`
+  to redo everyone). After drafting, `status` becomes `drafted` in the
+  output file.
+- If a creator has an `email` (parsed from their bio), the draft is an
+  email with subject line; otherwise it's a short DM-length message for
+  you to paste manually on TikTok (there's no public API for sending
+  TikTok DMs, so that step stays manual/semi-manual).
+- `--limit` caps how many creators get drafted in one run — use it to
+  control API cost while you're tuning the offer/tone, then run without it
+  once the drafts read well.
+- Writes `creators_with_drafts.csv` (`channel`, `email_subject`, `message`
+  columns added) — review every draft before sending, they're a starting
+  point, not a guaranteed-good message.
