@@ -592,9 +592,9 @@ private struct HomeView: View {
         case .workProductive:
             return "you killed it today"
         case .personallyProductive:
-            return "nice job — taking time for yourself does you good"
+            return "nice job, taking time for yourself does you good"
         case .notProductive:
-            return "you'll catch up tomorrow — i believe in you"
+            return "you'll catch up tomorrow, i believe in you"
         }
     }
 }
@@ -987,7 +987,7 @@ private struct CalendarView: View {
 
                     legendRow
 
-                    Text("fell behind? catch up on your year — tap any day to fill it in, or leave it blank.")
+                    Text("fell behind? catch up on your year: tap any day to fill it in, or leave it blank.")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(palette.textSecondary)
 
@@ -1664,7 +1664,7 @@ private struct WallpaperSetupStepCard: View {
                     .font(.system(size: 56, weight: .bold))
                     .foregroundStyle(palette.textPrimary)
 
-                Text("you're all set — now you can start having your life under control.")
+                Text("you're all set. now you can start taking control of your life.")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(palette.textPrimary)
                     .multilineTextAlignment(.center)
