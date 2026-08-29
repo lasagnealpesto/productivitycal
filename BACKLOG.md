@@ -62,3 +62,13 @@ Da fare: riprovare da zero l'approccio (magari `TabView` con
 `.tabViewStyle(.page)` nativo per le tab, e per il calendario valutare
 `ScrollView` con paging invece di un `DragGesture` custom) invece di
 continuare a patchare i gesture attuali.
+
+## 7. Rilavorare le immagini della pagina App Store
+Le screenshot attuali su App Store Connect sono da rifare/arricchire:
+1. **Screenshot dell'app**: aggiornare con le schermate reali post-redesign
+   (tutorial nuovo, calendario, home) invece delle prime caricate.
+2. **Screenshot "vision"**: 1-2 immagini con un concetto/claim forte invece
+   che solo UI nuda, es. "Tieni la tua vita sotto controllo" — da rifinire
+   il copy esatto e lo stile grafico (testo overlay su mockup del telefono).
+3. **Screenshot della notifica**: mostrare la notifica giornaliera (18:00)
+   com'è realmente su schermo, per comunicare il reminder automatico.
