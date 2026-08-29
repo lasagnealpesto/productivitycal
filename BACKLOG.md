@@ -48,3 +48,17 @@ ora compilata. Da verificare al prossimo aggiornamento: pushare il
 codice, lasciare che sia Xcode Cloud a creare la build, e provare se
 stavolta è selezionabile senza archivio manuale. Se sì, per gli
 aggiornamenti futuri basterà pushare — nessun lavoro manuale in Xcode.
+
+## 6. Sistemare le animazioni di swipe (calendario + tab)
+Entrambe percepite come macchinose, poco fluide:
+- **Swipe mesi nel calendario**: si "bugga" e slida male — probabilmente il
+  drag live (`dragOffset` + `swipeToMonth(delta:)`) ha timing/curve
+  dell'animazione da rivedere, o casi limite dove il gesto in corso e lo
+  stepper a frecce entrano in conflitto lasciando lo stato inconsistente.
+- **Swipe tra tab** (home/calendar/set): stessa sensazione di
+  macchinosità — la `DragGesture` sul `TabView` va rivista (soglie,
+  velocità, easing) per renderla naturale come uno swipe nativo.
+Da fare: riprovare da zero l'approccio (magari `TabView` con
+`.tabViewStyle(.page)` nativo per le tab, e per il calendario valutare
+`ScrollView` con paging invece di un `DragGesture` custom) invece di
+continuare a patchare i gesture attuali.
