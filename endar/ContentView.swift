@@ -1283,18 +1283,18 @@ enum WallpaperSetupGuideContent {
     /// names (in this order) to complete the tutorial — no other code change needed.
     static let steps: [WallpaperSetupStep] = {
         let imageNames = [
-            "wallpaper-setup-01.jpg",
-            "wallpaper-setup-02.jpg",
-            "wallpaper-setup-03.jpg",
-            "wallpaper-setup-04.jpg",
-            "wallpaper-setup-05.jpg",
-            "wallpaper-setup-06.jpg",
-            "wallpaper-setup-07.jpg",
-            "wallpaper-setup-08.jpg",
-            "wallpaper-setup-09.jpg",
-            "wallpaper-setup-10.jpg",
-            "wallpaper-setup-11.jpg",
-            "wallpaper-setup-12.jpg"
+            "wallpaper-setup-01.png",
+            "wallpaper-setup-02.png",
+            "wallpaper-setup-03.png",
+            "wallpaper-setup-04.png",
+            "wallpaper-setup-05.png",
+            "wallpaper-setup-06.png",
+            "wallpaper-setup-07.png",
+            "wallpaper-setup-08.png",
+            "wallpaper-setup-09.png",
+            "wallpaper-setup-10.png",
+            "wallpaper-setup-11.png",
+            "wallpaper-setup-12.png"
         ]
 
         var steps = imageNames.enumerated().map { index, name in
