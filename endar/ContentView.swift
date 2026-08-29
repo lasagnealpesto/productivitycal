@@ -713,7 +713,7 @@ private struct CalendarView: View {
     @State private var selectedYear: Int
     @State private var selectedMonth: Int
     @State private var isShowingQuickFill = false
-    @State private var monthTransitionEdge: Edge = .trailing
+    @State private var dragOffset: CGFloat = 0
 
     private let calendar = Calendar.current
 
@@ -755,10 +755,27 @@ private struct CalendarView: View {
             newYear -= 1
         }
 
-        monthTransitionEdge = delta > 0 ? .trailing : .leading
-        withAnimation(.easeInOut(duration: 0.28)) {
-            selectedMonth = newMonth
-            selectedYear = newYear
+        selectedMonth = newMonth
+        selectedYear = newYear
+    }
+
+    /// Slides the current month out — continuing smoothly from wherever `dragOffset`
+    /// already is (e.g. mid-drag) — then swaps to the new month and slides it in
+    /// from the opposite side.
+    private func swipeToMonth(delta: Int) {
+        let exitDistance: CGFloat = 500
+        let exitOffset: CGFloat = delta > 0 ? -exitDistance : exitDistance
+
+        withAnimation(.easeIn(duration: 0.16)) {
+            dragOffset = exitOffset
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            stepMonth(by: delta)
+            dragOffset = -exitOffset
+            withAnimation(.easeOut(duration: 0.24)) {
+                dragOffset = 0
+            }
         }
     }
 
@@ -813,7 +830,7 @@ private struct CalendarView: View {
 
                     HStack(spacing: 16) {
                         Button {
-                            stepMonth(by: -1)
+                            swipeToMonth(delta: -1)
                         } label: {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 15, weight: .semibold))
@@ -834,7 +851,7 @@ private struct CalendarView: View {
                             .multilineTextAlignment(.center)
 
                         Button {
-                            stepMonth(by: 1)
+                            swipeToMonth(delta: 1)
                         } label: {
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 15, weight: .semibold))
@@ -851,20 +868,24 @@ private struct CalendarView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
 
                     calendarGrid
-                        .id("\(selectedYear)-\(selectedMonth)")
-                        .transition(.asymmetric(
-                            insertion: .move(edge: monthTransitionEdge).combined(with: .opacity),
-                            removal: .move(edge: monthTransitionEdge == .trailing ? .leading : .trailing).combined(with: .opacity)
-                        ))
+                        .offset(x: dragOffset)
                         .clipped()
                         .contentShape(Rectangle())
                         .gesture(
-                            DragGesture(minimumDistance: 24)
+                            DragGesture(minimumDistance: 8)
+                                .onChanged { value in
+                                    dragOffset = value.translation.width
+                                }
                                 .onEnded { value in
-                                    if value.translation.width < -50 {
-                                        stepMonth(by: 1)
-                                    } else if value.translation.width > 50 {
-                                        stepMonth(by: -1)
+                                    let threshold: CGFloat = 50
+                                    if value.translation.width < -threshold {
+                                        swipeToMonth(delta: 1)
+                                    } else if value.translation.width > threshold {
+                                        swipeToMonth(delta: -1)
+                                    } else {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                            dragOffset = 0
+                                        }
                                     }
                                 }
                         )
