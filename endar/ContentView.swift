@@ -713,6 +713,7 @@ private struct CalendarView: View {
     @State private var selectedYear: Int
     @State private var selectedMonth: Int
     @State private var isShowingQuickFill = false
+    @State private var monthTransitionEdge: Edge = .trailing
 
     private let calendar = Calendar.current
 
@@ -754,8 +755,11 @@ private struct CalendarView: View {
             newYear -= 1
         }
 
-        selectedMonth = newMonth
-        selectedYear = newYear
+        monthTransitionEdge = delta > 0 ? .trailing : .leading
+        withAnimation(.easeInOut(duration: 0.28)) {
+            selectedMonth = newMonth
+            selectedYear = newYear
+        }
     }
 
     private var weekdaySymbols: [String] {
@@ -847,6 +851,23 @@ private struct CalendarView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
 
                     calendarGrid
+                        .id("\(selectedYear)-\(selectedMonth)")
+                        .transition(.asymmetric(
+                            insertion: .move(edge: monthTransitionEdge).combined(with: .opacity),
+                            removal: .move(edge: monthTransitionEdge == .trailing ? .leading : .trailing).combined(with: .opacity)
+                        ))
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 24)
+                                .onEnded { value in
+                                    if value.translation.width < -50 {
+                                        stepMonth(by: 1)
+                                    } else if value.translation.width > 50 {
+                                        stepMonth(by: -1)
+                                    }
+                                }
+                        )
 
                     legendRow
 
