@@ -86,7 +86,17 @@ struct ContentView: View {
     @StateObject private var moodStore = MoodStore()
     @AppStorage("theme.mode.v1") private var themeRaw: String = AppTheme.dark.rawValue
 
-    enum Tab { case home, calendar, set }
+    enum Tab: CaseIterable { case home, calendar, set }
+
+    private func stepTab(by delta: Int) {
+        let all = Tab.allCases
+        guard let currentIndex = all.firstIndex(of: selectedTab) else { return }
+        let newIndex = currentIndex + delta
+        guard all.indices.contains(newIndex) else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectedTab = all[newIndex]
+        }
+    }
 
     init(
         onLogout: @escaping () -> Void = {},
@@ -134,6 +144,17 @@ struct ContentView: View {
         .toolbarBackground(palette.surface, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .preferredColorScheme(theme == .dark ? .dark : .light)
+        .gesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    if value.translation.width < -60 {
+                        stepTab(by: 1)
+                    } else if value.translation.width > 60 {
+                        stepTab(by: -1)
+                    }
+                }
+        )
     }
 }
 
