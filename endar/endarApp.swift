@@ -47,7 +47,7 @@ struct endarApp: App {
         #if canImport(AppIntents)
         if #available(iOS 17.0, *) {
             Task {
-                await EndarAppShortcuts.updateAppShortcutParameters()
+                EndarAppShortcuts.updateAppShortcutParameters()
             }
         }
         #endif
