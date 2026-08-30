@@ -116,3 +116,30 @@ e row-level-security per account. Lato codice:
 - Non ancora fatto (rifinitura futura, non blocca): passare un `nonce` nello
   scambio Sign in with Apple → Supabase per protezione anti-replay più
   forte; oggi funziona ma senza quell'indurimento extra.
+
+## 9. Pulsante feedback in app → issue GitHub automatica — ✅ FATTO lato codice, manca un ultimo step manuale
+In Set, sotto "share my year", nuovo pulsante "send feedback" che apre un
+foglio con una casella di testo libera. Alla conferma, il testo viene
+salvato nella tabella `feedback` di Supabase (RLS: solo utenti loggati
+possono inserire, nessuno può leggere le righe altrui). Lato codice tutto
+pronto e pushato su `productivitycal1.1`:
+- `endar/SupabaseSync.swift`: `MoodSyncService.submitFeedback(message:appVersion:)`.
+- `endar/ContentView.swift`: `FeedbackView` (foglio) + pulsante in `SetView`.
+- Supabase: tabella `feedback` creata (migration `create_feedback_table`),
+  Edge Function `feedback-to-issue` pubblicata — riceve l'insert e apre una
+  issue su `lasagnealpesto/productivitycal` con label `feedback`, titolo
+  preso dal testo e corpo con email/versione app/data.
+
+**Manca un solo step, da fare tu una volta sola su supabase.com** (non
+posso farlo io: serve un tuo token GitHub, non va condiviso in chat):
+1. Su GitHub, crea un Personal Access Token (fine-grained, solo su questo
+   repo, permesso "Issues: Read and write") — Settings → Developer
+   settings → Personal access tokens.
+2. Su supabase.com, progetto "productivitycal" → Edge Functions →
+   `feedback-to-issue` → Secrets: aggiungi `GITHUB_TOKEN` con quel token.
+3. Sempre su supabase.com → Database → Webhooks → "Create a new hook":
+   tabella `feedback`, evento `INSERT`, tipo "Supabase Edge Functions",
+   funzione `feedback-to-issue`, header `Authorization: Bearer
+   <service_role key del progetto, da Project Settings → API>`.
+Fatto questo, ogni feedback mandato dall'app diventa una issue GitHub in
+automatico, senza altro lavoro manuale.

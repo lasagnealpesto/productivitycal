@@ -82,6 +82,32 @@ enum MoodSyncService {
         return session.user.email
     }
 
+    private struct FeedbackInsertRow: Codable {
+        let user_id: String
+        let email: String?
+        let message: String
+        let app_version: String
+        let platform: String
+    }
+
+    /// Inserts a row into `feedback`; a Supabase Database Webhook on that
+    /// table turns each insert into a GitHub issue on the repo, so app
+    /// feedback lands directly in the project's to-do list.
+    static func submitFeedback(message: String, appVersion: String) async throws {
+        let session = try await client.auth.session
+        let row = FeedbackInsertRow(
+            user_id: session.user.id.uuidString,
+            email: session.user.email,
+            message: message,
+            app_version: appVersion,
+            platform: "ios"
+        )
+        _ = try await client
+            .from("feedback")
+            .insert(row)
+            .execute()
+    }
+
     /// Plain email + password account, as an alternative to Apple/Google —
     /// also what an App Store reviewer can use without a real Apple/Google
     /// account (see BACKLOG.md for the demo account's credentials).

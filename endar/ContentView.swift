@@ -1414,6 +1414,7 @@ private struct SetView: View {
     @State private var dotShape: WallpaperDotShapeOption = .squircle
     @State private var backgroundStyle: WallpaperBackgroundOption = .dark
     @State private var showWallpaperGuide = false
+    @State private var showFeedbackSheet = false
     @State private var shareURL: URL?
     @State private var shareImage: UIImage?
 
@@ -1469,6 +1470,9 @@ private struct SetView: View {
         }
         .sheet(isPresented: $showWallpaperGuide) {
             WallpaperAutomationGuideView()
+        }
+        .sheet(isPresented: $showFeedbackSheet) {
+            FeedbackView(palette: palette)
         }
     }
 
@@ -1657,6 +1661,160 @@ private struct SetView: View {
             }
             .simultaneousGesture(TapGesture().onEnded { Haptics.light() })
         }
+
+        Button {
+            Haptics.light()
+            showFeedbackSheet = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "bubble.left.and.exclamationmark.bubble.right")
+                Text("send feedback")
+            }
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(palette.textPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(palette.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(palette.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct FeedbackView: View {
+    @Environment(\.dismiss) private var dismiss
+    let palette: AppPalette
+
+    @State private var message = ""
+    @State private var isSending = false
+    @State private var errorMessage: String?
+    @State private var didSend = false
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    private var isMessageEmpty: Bool {
+        message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                if didSend {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 44, weight: .bold))
+                            .foregroundStyle(palette.textPrimary)
+                        Text("thanks, got it")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(palette.textPrimary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    Spacer()
+                } else {
+                    Text("what's not working, or what would make this better?")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(palette.textSecondary)
+
+                    TextEditor(text: $message)
+                        .font(.system(size: 16))
+                        .foregroundStyle(palette.textPrimary)
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .frame(minHeight: 160)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(palette.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(palette.border, lineWidth: 1)
+                        )
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color(hex: 0xEB5757))
+                    }
+
+                    Button {
+                        send()
+                    } label: {
+                        Group {
+                            if isSending {
+                                ProgressView()
+                                    .tint(palette.background)
+                            } else {
+                                Text("send")
+                            }
+                        }
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(palette.background)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(palette.textPrimary)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isMessageEmpty || isSending)
+                    .opacity(isMessageEmpty ? 0.5 : 1)
+
+                    Spacer()
+                }
+            }
+            .padding(20)
+            .background(BackgroundView(palette: palette))
+            .navigationTitle("send feedback")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("close") { dismiss() }
+                        .foregroundStyle(palette.textPrimary)
+                }
+            }
+        }
+    }
+
+    private func send() {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isSending = true
+        errorMessage = nil
+
+        #if canImport(Supabase)
+        Task {
+            do {
+                try await MoodSyncService.submitFeedback(message: trimmed, appVersion: appVersion)
+                await MainActor.run {
+                    isSending = false
+                    Haptics.success()
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        didSend = true
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                await MainActor.run { dismiss() }
+            } catch {
+                await MainActor.run {
+                    isSending = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+        #else
+        isSending = false
+        errorMessage = "feedback isn't available in this build."
+        #endif
     }
 }
 
