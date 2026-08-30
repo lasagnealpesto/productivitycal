@@ -105,18 +105,27 @@ private enum EndarStreakReader {
         return moods[key(for: Date())] != nil
     }
 
+    /// Mirrors `MoodStore.countsTowardStreak` in the main app's
+    /// ContentView.swift: a "not productive" day breaks the streak just like
+    /// a blank one — only "work" and "personal" days keep it going. Counting
+    /// any logged day here (as this used to) made the widget's number
+    /// disagree with the app's.
+    private static func countsTowardStreak(_ rawValue: String?) -> Bool {
+        rawValue == "work_productive" || rawValue == "personally_productive"
+    }
+
     static func currentStreak(asOf referenceDate: Date = Date()) -> Int {
         let moods = loadStoredMoods()
         let calendar = Calendar.current
         var cursor = calendar.startOfDay(for: referenceDate)
 
-        if moods[key(for: cursor)] == nil {
+        if !countsTowardStreak(moods[key(for: cursor)]) {
             guard let yesterday = calendar.date(byAdding: .day, value: -1, to: cursor) else { return 0 }
             cursor = yesterday
         }
 
         var streak = 0
-        while moods[key(for: cursor)] != nil {
+        while countsTowardStreak(moods[key(for: cursor)]) {
             streak += 1
             guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
             cursor = previous

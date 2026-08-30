@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import UserNotifications
 import UIKit
+import WidgetKit
 
 extension Color {
     init(hex: UInt32, alpha: Double = 1.0) {
@@ -325,6 +326,11 @@ final class MoodStore: ObservableObject {
         let encoded = moods.mapValues { $0.rawValue }
         guard let data = try? JSONEncoder().encode(encoded) else { return }
         SharedStorage.defaults.set(data, forKey: storageKey)
+        // Every mutation path (setMood, fillPastDays, mergeRemote) funnels
+        // through here — without this, the widget only ever refreshed on its
+        // own schedule or after its own quick-log buttons, so logging a mood
+        // from inside the app left it showing a stale streak.
+        WidgetCenter.shared.reloadTimelines(ofKind: "EndarStreakWidget")
     }
 
     private static let keyFormatter: DateFormatter = {
