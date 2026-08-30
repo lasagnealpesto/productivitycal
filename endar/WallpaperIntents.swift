@@ -415,6 +415,16 @@ private enum WallpaperDotShapeStyle: String {
     }
 }
 
+private enum WallpaperBackgroundStyle: String {
+    case dark
+    case light
+
+    static func loadFromSettings() -> WallpaperBackgroundStyle {
+        let raw = (UserDefaults.standard.string(forKey: "wallpaper.background.v1") ?? "dark").lowercased()
+        return raw == "light" ? .light : .dark
+    }
+}
+
 private struct WallpaperPeriodSummary {
     let columns: Int
     let spacingRatio: CGFloat
@@ -501,8 +511,19 @@ private enum WallpaperImageRenderer {
             let w = canvasSize.width
             let h = canvasSize.height
             let dotShapeStyle = WallpaperDotShapeStyle.loadFromSettings()
+            let backgroundStyle = WallpaperBackgroundStyle.loadFromSettings()
+            let isLightBackground = backgroundStyle == .light
 
-            let backgroundColor = UIColor(red: 0x33 / 255.0, green: 0x33 / 255.0, blue: 0x33 / 255.0, alpha: 1.0)
+            // On a light background, every "ink" color (dots, labels, progress
+            // bar) flips from white-on-dark to black-on-light, at the same
+            // opacities, so contrast stays consistent between the two.
+            func ink(_ opacity: CGFloat) -> UIColor {
+                isLightBackground ? UIColor.black.withAlphaComponent(opacity) : UIColor.white.withAlphaComponent(opacity)
+            }
+
+            let backgroundColor = isLightBackground
+                ? UIColor(red: 0xF5 / 255.0, green: 0xF5 / 255.0, blue: 0xF5 / 255.0, alpha: 1.0)
+                : UIColor(red: 0x33 / 255.0, green: 0x33 / 255.0, blue: 0x33 / 255.0, alpha: 1.0)
             cg.setFillColor(backgroundColor.cgColor)
             cg.fill(CGRect(x: 0, y: 0, width: w, height: h))
 
@@ -550,10 +571,10 @@ private enum WallpaperImageRenderer {
                 let rect = CGRect(x: x, y: y, width: dot, height: dot)
 
                 let fill: UIColor = {
-                    guard let date else { return UIColor.white.withAlphaComponent(0.08) }
+                    guard let date else { return ink(0.08) }
                     if let mood = moodData.mood(for: date) { return moodUIColor(mood) }
-                    if date < todayStart { return UIColor.white.withAlphaComponent(0.88) }
-                    return UIColor.white.withAlphaComponent(0.26)
+                    if date < todayStart { return ink(0.88) }
+                    return ink(0.26)
                 }()
 
                 cg.setFillColor(fill.cgColor)
@@ -584,7 +605,7 @@ private enum WallpaperImageRenderer {
             ]
             let rightAttr: [NSAttributedString.Key: Any] = [
                 .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.62)
+                .foregroundColor: ink(0.62)
             ]
 
             let leftSize = (leftText as NSString).size(withAttributes: leftAttr)
@@ -603,11 +624,11 @@ private enum WallpaperImageRenderer {
             let bgRect = CGRect(x: barX, y: barY, width: barW, height: barH)
             let fgRect = CGRect(x: barX, y: barY, width: max(barH * 1.4, barW * summary.progress), height: barH)
 
-            cg.setFillColor(UIColor.white.withAlphaComponent(0.22).cgColor)
+            cg.setFillColor(ink(0.22).cgColor)
             cg.addPath(UIBezierPath(roundedRect: bgRect, cornerRadius: barH / 2).cgPath)
             cg.fillPath()
 
-            cg.setFillColor(UIColor.white.withAlphaComponent(0.92).cgColor)
+            cg.setFillColor(ink(0.92).cgColor)
             cg.addPath(UIBezierPath(roundedRect: fgRect, cornerRadius: barH / 2).cgPath)
             cg.fillPath()
         }

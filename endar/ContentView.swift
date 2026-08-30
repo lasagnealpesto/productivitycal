@@ -1280,6 +1280,17 @@ private enum WallpaperDotShapeOption: String, CaseIterable, Identifiable {
     }
 }
 
+private enum WallpaperBackgroundOption: String, CaseIterable, Identifiable {
+    case dark
+    case light
+
+    var id: String { rawValue }
+
+    static func fromStorage(_ raw: String) -> WallpaperBackgroundOption {
+        raw.lowercased() == "light" ? .light : .dark
+    }
+}
+
 enum WallpaperSetupStepContent {
     case screenshot(imageName: String)
     case completion
@@ -1394,12 +1405,14 @@ private struct SetView: View {
     @AppStorage("wallpaper.device.v1") private var wallpaperDeviceRaw: String = iPhoneModel.iphone17.storageValue
     @AppStorage("wallpaper.device.userSelected.v1") private var wallpaperDeviceUserSelected = false
     @AppStorage("wallpaper.dotShape.v1") private var wallpaperDotShapeRaw: String = WallpaperDotShapeOption.squircle.rawValue
+    @AppStorage("wallpaper.background.v1") private var wallpaperBackgroundRaw: String = WallpaperBackgroundOption.dark.rawValue
     @Binding var themeRaw: String
 
     let palette: AppPalette
 
     @State private var model: iPhoneModel = .iphone17
     @State private var dotShape: WallpaperDotShapeOption = .squircle
+    @State private var backgroundStyle: WallpaperBackgroundOption = .dark
     @State private var showWallpaperGuide = false
     @State private var shareURL: URL?
     @State private var shareImage: UIImage?
@@ -1439,6 +1452,7 @@ private struct SetView: View {
             }
 
             dotShape = WallpaperDotShapeOption.fromStorage(wallpaperDotShapeRaw)
+            backgroundStyle = WallpaperBackgroundOption.fromStorage(wallpaperBackgroundRaw)
             refreshShareImage()
         }
         .onChange(of: model) { _, newValue in
@@ -1447,6 +1461,10 @@ private struct SetView: View {
         }
         .onChange(of: dotShape) { _, newValue in
             wallpaperDotShapeRaw = newValue.rawValue
+            refreshShareImage()
+        }
+        .onChange(of: backgroundStyle) { _, newValue in
+            wallpaperBackgroundRaw = newValue.rawValue
             refreshShareImage()
         }
         .sheet(isPresented: $showWallpaperGuide) {
@@ -1511,6 +1529,50 @@ private struct SetView: View {
 
     @ViewBuilder
     private var wallpaperControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("wallpaper background")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(palette.textSecondary)
+
+            if #available(iOS 26.0, *) {
+                GlassEffectContainer(spacing: 22) {
+                    HStack(spacing: 12) {
+                        ForEach(WallpaperBackgroundOption.allCases) { option in
+                            Button {
+                                backgroundStyle = option
+                            } label: {
+                                WallpaperBackgroundChip(
+                                    option: option,
+                                    isSelected: backgroundStyle == option,
+                                    palette: palette,
+                                    isLightTheme: theme == .light
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    ForEach(WallpaperBackgroundOption.allCases) { option in
+                        Button {
+                            backgroundStyle = option
+                        } label: {
+                            WallpaperBackgroundChip(
+                                option: option,
+                                isSelected: backgroundStyle == option,
+                                palette: palette,
+                                isLightTheme: theme == .light
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                    }
+                }
+            }
+        }
+
         VStack(alignment: .leading, spacing: 10) {
             Text("dot style")
                 .font(.system(size: 14, weight: .semibold))
@@ -1777,6 +1839,63 @@ private struct DotStyleChip: View {
             }
         }
         .frame(width: 12, height: 12)
+    }
+}
+
+private struct WallpaperBackgroundChip: View {
+    let option: WallpaperBackgroundOption
+    let isSelected: Bool
+    let palette: AppPalette
+    let isLightTheme: Bool
+
+    private var swatchColor: Color {
+        option == .light ? Color(hex: 0xF5F5F5) : Color(hex: 0x333333)
+    }
+
+    var body: some View {
+        let selectedStroke = isLightTheme ? Color.black.opacity(0.52) : Color.white.opacity(0.82)
+        let unselectedStroke = isLightTheme ? Color.black.opacity(0.20) : palette.border.opacity(0.95)
+        let selectedTint = isLightTheme ? Color.black.opacity(0.07) : Color.white.opacity(0.08)
+        let unselectedTint = isLightTheme ? Color.black.opacity(0.025) : Color.white.opacity(0.03)
+
+        let base = VStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(swatchColor)
+                .frame(height: 32)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.black.opacity(0.14), lineWidth: 1)
+                )
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+
+            Text(option.rawValue)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(palette.textPrimary)
+                .padding(.bottom, 10)
+        }
+        .frame(maxWidth: .infinity)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(
+                    isSelected ? selectedStroke : unselectedStroke,
+                    lineWidth: isSelected ? 1.8 : 1.1
+                )
+        )
+
+        if #available(iOS 26.0, *) {
+            base
+                .glassEffect(
+                    .regular.tint(isSelected ? selectedTint : unselectedTint),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                )
+        } else {
+            base
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                )
+        }
     }
 }
 
