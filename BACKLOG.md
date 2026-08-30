@@ -143,3 +143,12 @@ posso farlo io: serve un tuo token GitHub, non va condiviso in chat):
    <service_role key del progetto, da Project Settings → API>`.
 Fatto questo, ogni feedback mandato dall'app diventa una issue GitHub in
 automatico, senza altro lavoro manuale.
+
+## 10. Cancellare il branch `testing` su GitHub — da fare tu
+Deciso di tenere solo `productivitycal1.1` come branch di sviluppo/test
+(agganciato al workflow Xcode Cloud "TestFlight Beta"); `testing` era un
+duplicato rimasto da un tentativo di rinomina, ora inutile. Non riesco a
+cancellarlo io: GitHub rifiuta il push di cancellazione con HTTP 403
+(stessa protezione già vista sul branch dell'harness). Da fare tu una
+volta sola: GitHub → repo → Branches → cestino su `testing` (oppure da
+Xcode). Da parte mia continuo a pushare solo su `productivitycal1.1`.
