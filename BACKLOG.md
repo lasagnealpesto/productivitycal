@@ -7,12 +7,22 @@ valutare per la prossima release.
 Scelta la strada del backend vero (vedi punto 8) invece di iCloud — erano
 due alternative per lo stesso problema, non serviva farle entrambe.
 
-## 2. Widget home screen (streak) — ✅ FATTO
+## 2. Widget home screen (streak) — ✅ FATTO (+ log interattivo)
 Target "Productivity Widget" creato in Xcode, codice incollato, App Groups
 configurato su entrambi i target, testato su device reale con successo.
 Formato small (streak + stato) e medium (streak + mini-preview 7 giorni)
 entrambi funzionanti; tap sul widget apre l'app sulla home via deep link
 `productivitycal://log`.
+
+**Aggiunta**: se il mood di oggi non è ancora segnato, al posto del testo
+"tap to log today" il widget mostra 3 pallini colorati toccabili (lavoro /
+personale / non produttivo) — toccandone uno il mood viene salvato subito,
+senza aprire l'app (widget interattivo iOS 17+, via 3 `AppIntent` dedicati
+in `WidgetExtensionSource.swift`: `LogWorkProductiveMoodIntent`,
+`LogPersonallyProductiveMoodIntent`, `LogNotProductiveMoodIntent`).
+**Va ricopiato il contenuto aggiornato del file nel target Xcode**
+(`Productivity_Widget.swift`) per attivarlo, stesso procedimento fatto la
+prima volta — non basta pushare il codice, va incollato di nuovo a mano.
 
 ## 3. Automazione wallpaper con meno step — ✅ FATTO
 Da 12 step manuali a 8: aggiunto un primo step "importa la shortcut

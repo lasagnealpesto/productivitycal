@@ -25,11 +25,14 @@
 //     in a small size, just the streak, and a medium size that also shows
 //     the last 7 days as colored dots).
 //
-//  Tapping the widget opens the app via the "productivitycal://log" deep
-//  link, which jumps straight to the home tab to log today's mood — see
-//  `.onOpenURL` in endarApp.swift and the CFBundleURLTypes entry for the
-//  "productivitycal" scheme in Info.plist (both already wired up on the
-//  main app side, nothing else to do there).
+//  Before today's mood is logged, the widget shows three tappable colored
+//  buttons (work / personal / not productive) — tapping one logs today's
+//  mood directly, without opening the app (iOS 17+ interactive widgets via
+//  AppIntent). Tapping anywhere else on the widget still opens the app via
+//  the "productivitycal://log" deep link — see `.onOpenURL` in
+//  endarApp.swift and the CFBundleURLTypes entry for the "productivitycal"
+//  scheme in Info.plist (both already wired up on the main app side,
+//  nothing else to do there).
 //
 //  If Xcode's template already named things differently (kind string,
 //  bundle struct name), it's fine to keep this file's names — just make
@@ -38,11 +41,12 @@
 
 import WidgetKit
 import SwiftUI
+import AppIntents
 
-// MARK: - Shared reader
-// Reads the same UserDefaults key ("moodStore.v1") the main app writes to,
-// via the same App Group suite. Deliberately duplicated here (not shared
-// via target membership) to keep this file paste-and-go.
+// MARK: - Shared reader/writer
+// Reads and writes the same UserDefaults key ("moodStore.v1") the main app
+// uses, via the same App Group suite. Deliberately duplicated here (not
+// shared via target membership) to keep this file paste-and-go.
 
 private enum EndarSharedStorage {
     static let appGroupID = "group.com.productivitycal.productivitycal"
@@ -87,6 +91,11 @@ private enum EndarStreakReader {
         return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
     }
 
+    private static func saveStoredMoods(_ moods: [String: String]) {
+        guard let data = try? JSONEncoder().encode(moods) else { return }
+        EndarSharedStorage.defaults.set(data, forKey: storageKey)
+    }
+
     private static func key(for date: Date) -> String {
         dayFormatter.string(from: Calendar.current.startOfDay(for: date))
     }
@@ -126,6 +135,47 @@ private enum EndarStreakReader {
             guard let day = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
             return moods[key(for: day)]
         }
+    }
+
+    /// Writes today's mood directly from a widget tap (see the `Log*MoodIntent`
+    /// types below) and asks WidgetKit to refresh so the change shows up
+    /// immediately, without ever opening the app.
+    static func setTodayMood(_ rawValue: String) {
+        var moods = loadStoredMoods()
+        moods[key(for: Date())] = rawValue
+        saveStoredMoods(moods)
+        WidgetCenter.shared.reloadTimelines(ofKind: "EndarStreakWidget")
+    }
+}
+
+// MARK: - Interactive widget actions (iOS 17+)
+// One intent per mood (rather than a single parameterized intent) — simplest
+// and most robust for a fixed set of three tap targets.
+
+struct LogWorkProductiveMoodIntent: AppIntent {
+    static var title: LocalizedStringResource = "log work productive"
+
+    func perform() async throws -> some IntentResult {
+        EndarStreakReader.setTodayMood("work_productive")
+        return .result()
+    }
+}
+
+struct LogPersonallyProductiveMoodIntent: AppIntent {
+    static var title: LocalizedStringResource = "log personally productive"
+
+    func perform() async throws -> some IntentResult {
+        EndarStreakReader.setTodayMood("personally_productive")
+        return .result()
+    }
+}
+
+struct LogNotProductiveMoodIntent: AppIntent {
+    static var title: LocalizedStringResource = "log not productive"
+
+    func perform() async throws -> some IntentResult {
+        EndarStreakReader.setTodayMood("not_productive")
+        return .result()
     }
 }
 
@@ -198,6 +248,48 @@ private struct MoodDotStrip: View {
     }
 }
 
+/// One tappable colored dot wired to a specific mood-logging AppIntent.
+private struct MoodQuickLogButton<Intent: AppIntent>: View {
+    let color: Color
+    let intent: Intent
+    let accessibilityLabel: String
+
+    var body: some View {
+        Button(intent: intent) {
+            Circle()
+                .fill(color)
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+/// The three quick-log buttons, shown in place of "tap to log today" once
+/// there's room to render them (replaced by that text only if truly
+/// unavailable — kept as a single row so it fits both widget sizes).
+private struct MoodQuickLogRow: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            MoodQuickLogButton(
+                color: EndarMoodColor.tint(forRawValue: "work_productive") ?? .green,
+                intent: LogWorkProductiveMoodIntent(),
+                accessibilityLabel: "log work productive"
+            )
+            MoodQuickLogButton(
+                color: EndarMoodColor.tint(forRawValue: "personally_productive") ?? .blue,
+                intent: LogPersonallyProductiveMoodIntent(),
+                accessibilityLabel: "log personally productive"
+            )
+            MoodQuickLogButton(
+                color: EndarMoodColor.tint(forRawValue: "not_productive") ?? .red,
+                intent: LogNotProductiveMoodIntent(),
+                accessibilityLabel: "log not productive"
+            )
+        }
+    }
+}
+
 struct EndarStreakWidgetView: View {
     @Environment(\.widgetFamily) private var family
     var entry: EndarStreakEntry
@@ -252,10 +344,15 @@ struct EndarStreakWidgetView: View {
         }
     }
 
+    @ViewBuilder
     private var statusLine: some View {
-        Text(entry.isTodayFilled ? "today done" : "tap to log today")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(entry.isTodayFilled ? .green : .orange)
+        if entry.isTodayFilled {
+            Text("today done")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.green)
+        } else {
+            MoodQuickLogRow()
+        }
     }
 }
 
@@ -269,7 +366,7 @@ struct EndarStreakWidget: Widget {
                 .widgetURL(URL(string: "productivitycal://log"))
         }
         .configurationDisplayName("streak")
-        .description("shows your current daily streak, plus the last 7 days at a glance.")
+        .description("shows your current daily streak, plus the last 7 days at a glance. tap a color to log today without opening the app.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
