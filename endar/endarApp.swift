@@ -149,6 +149,7 @@ private struct AppRootView: View {
         }
         .animation(.easeInOut(duration: 0.28), value: isSessionAuthenticated)
         .onAppear {
+            DailyMoodNotificationScheduler.shared.configureIfNeeded()
             guard !isAuthBypassedOnSimulator else { return }
             restorePreviousGoogleSessionIfNeeded()
             restorePreviousAppleSessionIfNeeded()
