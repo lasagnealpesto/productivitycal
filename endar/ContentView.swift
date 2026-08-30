@@ -211,6 +211,12 @@ struct ContentView: View {
                     selectedTab = .home
                 }
             }
+            #if canImport(Supabase)
+            .task {
+                moodStore.onDayChanged = MoodSyncService.pushSingleDay
+                await MoodSyncService.syncNow(store: moodStore)
+            }
+            #endif
         }
     }
 }
@@ -283,6 +289,11 @@ enum Mood: String, CaseIterable, Identifiable, Codable {
 final class MoodStore: ObservableObject {
     @Published private(set) var moods: [String: Mood] = [:]
 
+    /// Called after every local change (day key + new mood, `nil` if cleared)
+    /// so an external sync layer (see SupabaseSync.swift) can mirror it to
+    /// the signed-in account without MoodStore needing to know that exists.
+    var onDayChanged: ((String, Mood?) -> Void)?
+
     private let storageKey = "moodStore.v1"
     private let calendar = Calendar.current
 
@@ -303,6 +314,7 @@ final class MoodStore: ObservableObject {
         }
         save()
         DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
+        onDayChanged?(key, mood)
     }
 
     /// Sets every day in `dates` that is today or earlier to `mood`, overwriting
@@ -312,10 +324,27 @@ final class MoodStore: ObservableObject {
         for date in dates {
             let day = calendar.startOfDay(for: date)
             guard day <= today else { continue }
-            moods[key(for: day)] = mood
+            let key = key(for: day)
+            moods[key] = mood
+            onDayChanged?(key, mood)
         }
         save()
         DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
+    }
+
+    /// Fills in only the days missing locally with a remote value — local
+    /// always wins on conflicts, this never overwrites a value already set
+    /// on this device. Used to restore history after a reinstall or on a
+    /// new device signed into the same account.
+    func mergeRemote(_ remote: [String: Mood]) {
+        var changed = false
+        for (key, mood) in remote where moods[key] == nil {
+            moods[key] = mood
+            changed = true
+        }
+        if changed {
+            save()
+        }
     }
 
     private func countsTowardStreak(_ date: Date) -> Bool {
@@ -592,9 +621,9 @@ private struct HomeView: View {
         case .workProductive:
             return "you killed it today"
         case .personallyProductive:
-            return "nice job — taking time for yourself does you good"
+            return "nice job, taking time for yourself does you good"
         case .notProductive:
-            return "you'll catch up tomorrow — i believe in you"
+            return "you'll catch up tomorrow, i believe in you"
         }
     }
 }
@@ -987,7 +1016,7 @@ private struct CalendarView: View {
 
                     legendRow
 
-                    Text("fell behind? catch up on your year — tap any day to fill it in, or leave it blank.")
+                    Text("fell behind? catch up on your year: tap any day to fill it in, or leave it blank.")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(palette.textSecondary)
 
@@ -1319,6 +1348,13 @@ private enum WallpaperDotShapeOption: String, CaseIterable, Identifiable {
 
 enum WallpaperSetupStepContent {
     case screenshot(imageName: String)
+    /// A one-tap step: opens a pre-built Shortcut (the two wallpaper actions,
+    /// already wired together) via its iCloud share link, so the user never
+    /// has to search for and connect those actions by hand.
+    case importShortcut
+    /// A text-only step for instructions that don't have (or no longer need)
+    /// an annotated screenshot.
+    case instruction(title: String, detail: String, systemImage: String)
     case completion
 }
 
@@ -1328,28 +1364,33 @@ struct WallpaperSetupStep: Identifiable {
 }
 
 enum WallpaperSetupGuideContent {
-    /// Drop the 12 annotated screenshot files into endar/screenshots with these exact
-    /// names (in this order) to complete the tutorial — no other code change needed.
-    static let steps: [WallpaperSetupStep] = {
-        let imageNames = [
-            "wallpaper-setup-01.png",
-            "wallpaper-setup-02.png",
-            "wallpaper-setup-03.png",
-            "wallpaper-setup-04.png",
-            "wallpaper-setup-05.png",
-            "wallpaper-setup-06.png",
-            "wallpaper-setup-07.png",
-            "wallpaper-setup-08.png",
-            "wallpaper-setup-09.png",
-            "wallpaper-setup-10.png",
-            "wallpaper-setup-11.png",
-            "wallpaper-setup-12.png"
-        ]
+    /// A pre-built Shortcut ("productivitycal wallpaper": generate wallpaper
+    /// -> set wallpaper photo, already wired together, lock screen only)
+    /// shared via iCloud link. Importing it replaces the old "search for and
+    /// wire up two actions by hand" steps with a single tap.
+    static let importShortcutURL = URL(string: "https://www.icloud.com/shortcuts/b63e7a3591be492e88cc0d319dafe72f")!
 
-        var steps = imageNames.enumerated().map { index, name in
-            WallpaperSetupStep(id: index, content: .screenshot(imageName: name))
+    /// Screenshots 06-11 of the old 12-step flow (building the shortcut's
+    /// actions from scratch) are replaced by `.importShortcut` + a single
+    /// `.instruction` step now that the actions come pre-wired.
+    static let steps: [WallpaperSetupStep] = {
+        var steps: [WallpaperSetupStep] = []
+
+        func append(_ content: WallpaperSetupStepContent) {
+            steps.append(WallpaperSetupStep(id: steps.count, content: content))
         }
-        steps.append(WallpaperSetupStep(id: imageNames.count, content: .completion))
+
+        append(.importShortcut)
+        for index in 1...5 {
+            append(.screenshot(imageName: String(format: "wallpaper-setup-%02d.png", index)))
+        }
+        append(.instruction(
+            title: "add \"run shortcut\"",
+            detail: "tap the + to add an action, search \"run shortcut\", and choose \"productivitycal wallpaper\", the one you just imported.",
+            systemImage: "bolt.fill"
+        ))
+        append(.screenshot(imageName: "wallpaper-setup-12.png"))
+        append(.completion)
         return steps
     }()
 }
@@ -1658,13 +1699,19 @@ private struct WallpaperSetupStepCard: View {
             WallpaperSetupScreenshot(imageName: imageName, palette: palette)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, 4)
+        case .importShortcut:
+            WallpaperImportShortcutCard(palette: palette)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .instruction(let title, let detail, let systemImage):
+            WallpaperInstructionCard(title: title, detail: detail, systemImage: systemImage, palette: palette)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .completion:
             VStack(spacing: 20) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 56, weight: .bold))
                     .foregroundStyle(palette.textPrimary)
 
-                Text("you're all set — now you can start having your life under control.")
+                Text("you're all set. now you can start taking control of your life.")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(palette.textPrimary)
                     .multilineTextAlignment(.center)
@@ -1672,6 +1719,78 @@ private struct WallpaperSetupStepCard: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+private struct WallpaperImportShortcutCard: View {
+    let palette: AppPalette
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "square.and.arrow.down.on.square.fill")
+                .font(.system(size: 48, weight: .semibold))
+                .foregroundStyle(palette.textPrimary)
+
+            VStack(spacing: 8) {
+                Text("import the ready-made shortcut")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(palette.textPrimary)
+                    .multilineTextAlignment(.center)
+
+                Text("it already has the two actions wired together, so you won't have to search for and connect them yourself.")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(palette.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24)
+
+            Button {
+                Haptics.light()
+                #if canImport(UIKit)
+                UIApplication.shared.open(WallpaperSetupGuideContent.importShortcutURL)
+                #endif
+            } label: {
+                Text("import shortcut")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(palette.background)
+                    .frame(maxWidth: 260, minHeight: 50)
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(palette.textPrimary)
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct WallpaperInstructionCard: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let palette: AppPalette
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: systemImage)
+                .font(.system(size: 48, weight: .semibold))
+                .foregroundStyle(palette.textPrimary)
+
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(palette.textPrimary)
+                    .multilineTextAlignment(.center)
+
+                Text(detail)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(palette.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -73,6 +73,7 @@ private struct AppRootView: View {
     private enum SessionAuthProvider: String {
         case apple
         case google
+        case email
     }
 
     @State private var showLaunchSplash = true
@@ -85,6 +86,10 @@ private struct AppRootView: View {
     @State private var appleLogoutCoordinator: AppleLogoutCoordinator?
     @AppStorage("auth.apple.user.id.v1") private var storedAppleUserID: String = ""
     @AppStorage("auth.provider.v1") private var authProviderRaw: String = ""
+    #if canImport(Supabase)
+    @State private var isEmailSigningIn = false
+    @State private var emailAuthError: String?
+    #endif
     
     private var isAuthBypassedOnSimulator: Bool {
         #if targetEnvironment(simulator)
@@ -112,6 +117,13 @@ private struct AppRootView: View {
                     onGoogleSignIn: signInWithGoogle,
                     isAppleSigningIn: isAppleSigningIn,
                     isGoogleSigningIn: isGoogleSigningIn
+                    #if canImport(Supabase)
+                    ,
+                    onEmailSignIn: signInWithEmail,
+                    onEmailSignUp: signUpWithEmail,
+                    isEmailSigningIn: isEmailSigningIn,
+                    emailAuthError: emailAuthError
+                    #endif
                 )
                 .transition(.opacity)
                 .allowsHitTesting(!showLaunchSplash)
@@ -141,6 +153,54 @@ private struct AppRootView: View {
         }
         DailyMoodNotificationScheduler.shared.configureIfNeeded()
     }
+
+    #if canImport(Supabase)
+    private func signInWithEmail(email: String, password: String) {
+        guard !isEmailSigningIn else { return }
+        isEmailSigningIn = true
+        emailAuthError = nil
+
+        Task {
+            do {
+                try await MoodSyncService.signInWithPassword(email: email, password: password)
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    authProviderRaw = SessionAuthProvider.email.rawValue
+                    storedAppleUserID = ""
+                    completeLogin()
+                }
+            } catch {
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    emailAuthError = "couldn't sign in, check your email and password."
+                }
+            }
+        }
+    }
+
+    private func signUpWithEmail(email: String, password: String) {
+        guard !isEmailSigningIn else { return }
+        isEmailSigningIn = true
+        emailAuthError = nil
+
+        Task {
+            do {
+                try await MoodSyncService.signUpWithPassword(email: email, password: password)
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    authProviderRaw = SessionAuthProvider.email.rawValue
+                    storedAppleUserID = ""
+                    completeLogin()
+                }
+            } catch {
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    emailAuthError = "couldn't create the account, try a different email or a longer password."
+                }
+            }
+        }
+    }
+    #endif
 
     private func handleLogout() {
         GIDSignIn.sharedInstance.signOut()
@@ -211,6 +271,11 @@ private struct AppRootView: View {
                     storedAppleUserID = credential.user
                     authProviderRaw = SessionAuthProvider.apple.rawValue
                     GIDSignIn.sharedInstance.signOut()
+                    #if canImport(Supabase)
+                    if let tokenData = credential.identityToken, let idToken = String(data: tokenData, encoding: .utf8) {
+                        Task { await MoodSyncService.signIn(idToken: idToken, provider: .apple) }
+                    }
+                    #endif
                     completeLogin()
                 case .failure:
                     break
@@ -236,9 +301,14 @@ private struct AppRootView: View {
         GIDSignIn.sharedInstance.configuration = configuration
         GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { result, _ in
             isGoogleSigningIn = false
-            guard result != nil else { return }
+            guard let result else { return }
             authProviderRaw = SessionAuthProvider.google.rawValue
             storedAppleUserID = ""
+            #if canImport(Supabase)
+            if let idToken = result.user.idToken?.tokenString {
+                Task { await MoodSyncService.signIn(idToken: idToken, provider: .google) }
+            }
+            #endif
             completeLogin()
         }
     }
@@ -289,6 +359,10 @@ private struct AppRootView: View {
         authProviderRaw = ""
         isAppleSigningIn = false
         isGoogleSigningIn = false
+
+        #if canImport(Supabase)
+        Task { await MoodSyncService.signOut() }
+        #endif
 
         if resetAllLocalData {
             if let bundleID = Bundle.main.bundleIdentifier {
@@ -397,23 +471,51 @@ private struct LaunchSplashView: View {
         }
     }
 
+    /// Shown once in full the first time the app is opened each day; every
+    /// later same-day launch gets a quick fade instead so a multiple-times-
+    /// a-day habit app doesn't pay a ~2s animation tax on every open.
+    private static let lastShownDayKey = "launchSplash.lastShownDay.v1"
+
     @MainActor
     private func runAnimationIfNeeded() async {
         guard !hasStarted else { return }
         hasStarted = true
 
-        // 1) Pure black hold
-        try? await Task.sleep(nanoseconds: 260_000_000)
+        let defaults = UserDefaults.standard
+        let today = Calendar.current.startOfDay(for: Date())
+        let alreadyShownToday: Bool = {
+            guard let stored = defaults.object(forKey: Self.lastShownDayKey) as? Date else { return false }
+            return Calendar.current.isDate(stored, inSameDayAs: today)
+        }()
 
-        // 2) Logo emerges from black (opacity 0 -> 1 in ~1s)
-        withAnimation(.easeOut(duration: 1.0)) {
+        guard !alreadyShownToday else {
+            withAnimation(.easeOut(duration: 0.2)) {
+                logoBaseOpacity = 1.0
+                logoScale = 1.0
+            }
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            withAnimation(.easeInOut(duration: 0.18)) {
+                containerOpacity = 0.0
+            }
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            onFinished()
+            return
+        }
+
+        defaults.set(today, forKey: Self.lastShownDayKey)
+
+        // 1) Pure black hold
+        try? await Task.sleep(nanoseconds: 150_000_000)
+
+        // 2) Logo emerges from black
+        withAnimation(.easeOut(duration: 0.55)) {
             logoBaseOpacity = 1.0
             logoScale = 1.0
         }
 
         // 3) Start glow earlier while logo fade-in is still progressing
-        try? await Task.sleep(nanoseconds: 700_000_000)
-        withAnimation(.easeInOut(duration: 0.90)) {
+        try? await Task.sleep(nanoseconds: 380_000_000)
+        withAnimation(.easeInOut(duration: 0.5)) {
             logoGlow = 0.34
             logoBloomOpacity = 0.64
             logoBloomBlur = 14.0
@@ -421,14 +523,14 @@ private struct LaunchSplashView: View {
             logoSpecularOpacity = 0.24
         }
 
-        try? await Task.sleep(nanoseconds: 700_000_000)
+        try? await Task.sleep(nanoseconds: 380_000_000)
 
         // 4) Dissolve to home
-        withAnimation(.easeInOut(duration: 0.28)) {
+        withAnimation(.easeInOut(duration: 0.22)) {
             containerOpacity = 0.0
         }
 
-        try? await Task.sleep(nanoseconds: 280_000_000)
+        try? await Task.sleep(nanoseconds: 220_000_000)
         onFinished()
     }
 }
@@ -438,17 +540,63 @@ private struct LoginView: View {
     let onGoogleSignIn: () -> Void
     let isAppleSigningIn: Bool
     let isGoogleSigningIn: Bool
+    #if canImport(Supabase)
+    let onEmailSignIn: (String, String) -> Void
+    let onEmailSignUp: (String, String) -> Void
+    let isEmailSigningIn: Bool
+    let emailAuthError: String?
+
+    @State private var email = ""
+    @State private var password = ""
+    #endif
 
     private let backgroundColor = Color(hex: 0x333333)
+    private let logoName = "splash-logo"
+
+    private var brandLogoImage: UIImage? {
+        if let named = UIImage(named: logoName) {
+            return named
+        }
+        guard let path = Bundle.main.path(forResource: logoName, ofType: "png") else {
+            return nil
+        }
+        return UIImage(contentsOfFile: path)
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let maxContentWidth = min(proxy.size.width - 32, 440)
-            let topSpacing = max(proxy.size.height * 0.18, 110)
+            let topSpacing = max(proxy.size.height * 0.12, 72)
             let bottomSpacing = max(proxy.size.height * 0.14, 84)
 
             VStack(spacing: 0) {
                 Spacer(minLength: topSpacing)
+
+                VStack(spacing: 12) {
+                    Group {
+                        if let brandLogoImage {
+                            Image(uiImage: brandLogoImage)
+                                .renderingMode(.template)
+                                .resizable()
+                                .scaledToFit()
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                        } else {
+                            Text("productivitycal")
+                                .font(.system(size: 28, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white)
+                                .tracking(0.6)
+                        }
+                    }
+
+                    Text("your days, tracked. your life, under control.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: maxContentWidth)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 36)
 
                 VStack(spacing: 14) {
                     LiquidGlassSSOButton(
@@ -470,6 +618,10 @@ private struct LoginView: View {
                     }
                     .disabled(isGoogleSigningIn)
 
+                    #if canImport(Supabase)
+                    emailAuthSection
+                    #endif
+
                     Link("privacy policy", destination: URL(string: "https://lasagnealpesto.github.io/productivitycal/privacy-policy.html")!)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.55))
@@ -484,6 +636,83 @@ private struct LoginView: View {
             .background(backgroundColor.ignoresSafeArea())
         }
     }
+
+    #if canImport(Supabase)
+    private var emailAuthSection: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Rectangle().fill(.white.opacity(0.18)).frame(height: 1)
+                Text("or")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                Rectangle().fill(.white.opacity(0.18)).frame(height: 1)
+            }
+            .padding(.vertical, 4)
+
+            TextField("", text: $email, prompt: Text("email").foregroundStyle(.white.opacity(0.4)))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+                .background(emailFieldBackground)
+
+            SecureField("", text: $password, prompt: Text("password").foregroundStyle(.white.opacity(0.4)))
+                .textContentType(.password)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+                .background(emailFieldBackground)
+
+            if let emailAuthError {
+                Text(emailAuthError)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.red.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 2)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    onEmailSignIn(email, password)
+                } label: {
+                    Text(isEmailSigningIn ? "..." : "sign in")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(NeutralGlassButtonStyle())
+                .background(emailFieldBackground)
+                .disabled(isEmailSigningIn || email.isEmpty || password.isEmpty)
+
+                Button {
+                    onEmailSignUp(email, password)
+                } label: {
+                    Text(isEmailSigningIn ? "..." : "sign up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(NeutralGlassButtonStyle())
+                .background(emailFieldBackground)
+                .disabled(isEmailSigningIn || email.isEmpty || password.isEmpty)
+            }
+            .padding(.top, 2)
+        }
+        .padding(.top, 8)
+    }
+
+    private var emailFieldBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(.white.opacity(0.06))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(.white.opacity(0.2), lineWidth: 1)
+            )
+    }
+    #endif
 }
 
 private struct LiquidGlassSSOButton<Icon: View>: View {

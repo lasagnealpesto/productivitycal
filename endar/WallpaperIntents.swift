@@ -14,16 +14,35 @@ import UIKit
 struct WallpaperAutomationGuideView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedWallpaperSetupStep = 0
+    @State private var stepPulse = false
 
-    // Always matches the dark background baked into the tutorial screenshots,
-    // regardless of the user's light/dark theme setting.
-    private let palette = AppTheme.dark.palette
+    // A light, airy background (rather than following the user's own theme
+    // setting) so each dark tutorial screenshot reads as a floating card.
+    private let palette = AppTheme.light.palette
+
+    /// One motivating line per screenshot step, framing the mechanical
+    /// instruction baked into the photo as progress toward a bigger goal.
+    /// Index-aligned with `WallpaperSetupGuideContent.steps` (the completion
+    /// step has no entry, it has its own message already).
+    private static let stepCaptions: [String] = [
+        "one tap, and the hardest part is already done.",
+        "now let's set up when this runs, from here it's two minutes.",
+        "let's build the routine that keeps you consistent.",
+        "pick when it happens, then forget about it.",
+        "your daily nudge, set once.",
+        "so it runs with zero taps, every time.",
+        "this connects productivitycal to your lock screen.",
+        "save it, and you're one tap from a life you can see."
+    ]
 
     private var steps: [WallpaperSetupStep] { WallpaperSetupGuideContent.steps }
     private var isOnLastStep: Bool { selectedWallpaperSetupStep == steps.count - 1 }
     private var progress: Double {
         guard steps.count > 1 else { return 1 }
         return Double(selectedWallpaperSetupStep + 1) / Double(steps.count)
+    }
+    private var currentCaption: String? {
+        Self.stepCaptions.indices.contains(selectedWallpaperSetupStep) ? Self.stepCaptions[selectedWallpaperSetupStep] : nil
     }
 
     var body: some View {
@@ -49,11 +68,22 @@ struct WallpaperAutomationGuideView: View {
                     .ignoresSafeArea()
             )
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 14) {
+                VStack(spacing: 10) {
                     Text("step \(selectedWallpaperSetupStep + 1) of \(steps.count)")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(palette.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .center)
+                        .scaleEffect(stepPulse ? 1.06 : 1.0)
+
+                    if let currentCaption {
+                        Text(currentCaption)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(palette.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .id(selectedWallpaperSetupStep)
+                            .transition(.opacity.combined(with: .move(edge: .trailing)))
+                    }
 
                     ZStack(alignment: .leading) {
                         Capsule()
@@ -64,7 +94,7 @@ struct WallpaperAutomationGuideView: View {
                             Capsule()
                                 .fill(palette.textPrimary)
                                 .frame(width: proxy.size.width * progress, height: 6)
-                                .animation(.easeOut(duration: 0.25), value: progress)
+                                .animation(.easeOut(duration: 0.2), value: progress)
                         }
                         .frame(height: 6)
                     }
@@ -107,11 +137,23 @@ struct WallpaperAutomationGuideView: View {
                         .opacity(0.96)
                         .ignoresSafeArea(edges: .bottom)
                 )
+                .animation(.easeInOut(duration: 0.22), value: selectedWallpaperSetupStep)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("close") { dismiss() }
                         .foregroundColor(palette.textPrimary)
+                }
+            }
+            .onChange(of: selectedWallpaperSetupStep) { _, _ in
+                Haptics.light()
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.5)) {
+                    stepPulse = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+                    withAnimation(.spring(response: 0.26, dampingFraction: 0.65)) {
+                        stepPulse = false
+                    }
                 }
             }
         }

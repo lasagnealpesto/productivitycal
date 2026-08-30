@@ -3,40 +3,38 @@
 Elenco di cose rimandate volontariamente durante il lavoro sulla v1.0, da
 valutare per la prossima release.
 
-## 1. Sync iCloud per i dati (mood/calendario)
-Oggi tutto è locale (`UserDefaults`/App Group) — se l'utente disinstalla
-l'app o cambia iPhone perde tutta la cronologia, anche se ha fatto
-"sign in". Idea: usare `NSUbiquitousKeyValueStore` (o CloudKit se serve
-più capacità) per sincronizzare automaticamente tra i dispositivi
-dell'utente collegati allo stesso iCloud — gratis, nessun backend da
-gestire, indipendente da quale provider di login (Apple/Google) ha usato.
-Non banale: va implementato e testato con cura prima di spedirlo.
+## 1. Sync iCloud per i dati (mood/calendario) — ❌ NON SERVE PIÙ
+Scelta la strada del backend vero (vedi punto 8) invece di iCloud — erano
+due alternative per lo stesso problema, non serviva farle entrambe.
 
-## 2. Widget home screen (streak)
-Codice pronto, non ancora collegato al progetto Xcode:
-- `WidgetExtensionSource.swift` (nella root del repo) contiene il codice
-  completo: formato small (streak + stato "today done"/"tap to log
-  today") e formato medium (streak + mini-preview a pallini colorati
-  degli ultimi 7 giorni, stessa palette mood dell'app).
-- Tap sul widget apre l'app direttamente sulla home per loggare il mood
-  di oggi, via deep link `productivitycal://log` — già cablato lato app
-  principale (`Info.plist` + `onOpenURL` in `endarApp.swift` + ascolto in
-  `ContentView`), non serve altro lì.
-- Lo storage condiviso via App Group (`group.com.productivitycal.productivitycal`)
-  è già configurato lato app principale, con fallback automatico.
-- Manca solo: creare il target "Widget Extension" in Xcode (File → New →
-  Target), incollare il codice, e aggiungere la capability "App Groups"
-  a entrambi i target. ~5 minuti in Xcode, va fatto da lì (non in modo
-  sicuro via modifica diretta del `project.pbxproj`).
+## 2. Widget home screen (streak) — ✅ FATTO (+ log interattivo)
+Target "Productivity Widget" creato in Xcode, codice incollato, App Groups
+configurato su entrambi i target, testato su device reale con successo.
+Formato small (streak + stato) e medium (streak + mini-preview 7 giorni)
+entrambi funzionanti; tap sul widget apre l'app sulla home via deep link
+`productivitycal://log`.
 
-## 3. Automazione wallpaper con meno step
-Oggi il setup richiede ~12 passaggi manuali in Shortcuts (tutorial con
-screenshot). Idea per ridurlo a 2-3 tap: generare un file `.shortcut`
-precompilato che l'utente importa con un tap, con azione e trigger già
-dentro — l'utente conferma solo alla fine invece di costruire tutto a
-mano. iOS non permette di creare l'Automazione Personale in modo del
-tutto invisibile (serve comunque un passaggio in Shortcuts la prima
-volta), ma si può ridurre drasticamente il lavoro manuale.
+**Aggiunta**: se il mood di oggi non è ancora segnato, al posto del testo
+"tap to log today" il widget mostra 3 pallini colorati toccabili (lavoro /
+personale / non produttivo) — toccandone uno il mood viene salvato subito,
+senza aprire l'app (widget interattivo iOS 17+, via 3 `AppIntent` dedicati
+in `WidgetExtensionSource.swift`: `LogWorkProductiveMoodIntent`,
+`LogPersonallyProductiveMoodIntent`, `LogNotProductiveMoodIntent`).
+**Va ricopiato il contenuto aggiornato del file nel target Xcode**
+(`Productivity_Widget.swift`) per attivarlo, stesso procedimento fatto la
+prima volta — non basta pushare il codice, va incollato di nuovo a mano.
+
+## 3. Automazione wallpaper con meno step — ✅ FATTO
+Da 12 step manuali a 8: aggiunto un primo step "importa la shortcut
+pronta" che apre un link iCloud (la shortcut con le due azioni "generate
+wallpaper" → "set wallpaper photo" già collegate e "lock screen" già
+scelto, condivisa una volta da Shortcuts, non generata a mano — niente
+formato binario indovinato). I vecchi step 6-11 (cercare e collegare le
+azioni a mano) sono sostituiti da un solo step testuale: "aggiungi
+l'azione 'Esegui Shortcut' e scegli quella importata". Il link vive in
+`WallpaperSetupGuideContent.importShortcutURL` (`endar/ContentView.swift`).
+Se in futuro cambia qualcosa nelle azioni sottostanti, va rifatta la
+shortcut condivisa e aggiornato quel link.
 
 ## 4. Icona dell'app
 L'icona attuale (freccia + scintilla) viene dal progetto originale
@@ -78,14 +76,37 @@ Le screenshot attuali su App Store Connect sono da rifare/arricchire:
 3. **Screenshot della notifica**: mostrare la notifica giornaliera (18:00)
    com'è realmente su schermo, per comunicare il reminder automatico.
 
-## 8. Login + backend vero, dati legati al profilo
-Oggi il login (Apple/Google) esiste ma i dati restano locali sul
-dispositivo (vedi punto 1) — non c'è un vero account nel senso di "i miei
-dati mi seguono ovunque faccio login". Da fare: backend con database
-(es. Supabase/Firebase) dove ogni utente autenticato ha il proprio storico
-mood salvato lato server, associato al suo account — non più legato al
-singolo iPhone/App Group locale. Alternativa più leggera al punto 1
-(iCloud): qui il vantaggio è che funziona anche se in futuro l'app girasse
-su più piattaforme o l'utente cambiasse provider di login. Da valutare
-insieme a quale via scegliere (iCloud-only vs backend proprio) prima di
-implementare — sono due strade diverse, non serve farle entrambe.
+## 8. Login + backend vero, dati legati al profilo — 🟡 codice pronto, manca 1 step in Xcode
+Backend Supabase creato (progetto "productivitycal", ref `nxcdjnmiulliwpwnbbsx`,
+org Supabase esistente) con tabella `moods` (user_id, day, mood, updated_at)
+e row-level-security per account. Lato codice:
+- `endar/SupabaseSync.swift` (nuovo file): `MoodSyncService` — scambia il
+  token nativo di Sign in with Apple/Google per una sessione Supabase vera,
+  fa pull+merge (locale vince sui conflitti, riempie solo i buchi) al primo
+  avvio dopo login, e push di ogni singolo giorno modificato in tempo reale.
+  Tutto dentro `#if canImport(Supabase)`, quindi l'app compila e funziona
+  anche prima di aggiungere il pacchetto (la sync resta solo inattiva).
+- `MoodStore` (in `ContentView.swift`): aggiunto `onDayChanged` hook e
+  `mergeRemote(_:)` per collegarsi alla sync senza che sappia che Supabase
+  esiste.
+- `endarApp.swift`: dopo login Apple/Google chiama `MoodSyncService.signIn`;
+  al logout chiama `MoodSyncService.signOut`.
+- **Login email + password**: aggiunta una sezione "or" sotto Apple/Google
+  in `LoginView` con campi email/password e pulsanti sign in / sign up,
+  collegati a `MoodSyncService.signInWithPassword`/`signUpWithPassword`.
+  Utile sia per chi non vuole usare Apple/Google, sia per i reviewer Apple.
+- **Account demo per App Store Review** (creato direttamente sul database
+  Supabase, non serve fare altro): email `reviewer@productivitycal.app`,
+  password `YouAreMyFavoriteReviewer!1`. Da mettere nel campo "Note per il
+  revisore"/"Sign-In Information" di App Store Connect quando risottometti,
+  così il reviewer può accedere senza un vero account Apple/Google. Non
+  condividerla altrove.
+- **Manca solo**: in Xcode, File → Add Package Dependencies → incolla
+  `https://github.com/supabase/supabase-swift` → aggiungi il prodotto
+  "Supabase" al target "endar". ~2 minuti, poi build — a differenza del
+  widget qui gli errori di compilazione (se ce ne sono) li vedi subito in
+  Xcode, quindi è normale/atteso dover sistemare qualche dettaglio all'API
+  al primo build.
+- Non ancora fatto (rifinitura futura, non blocca): passare un `nonce` nello
+  scambio Sign in with Apple → Supabase per protezione anti-replay più
+  forte; oggi funziona ma senza quell'indurimento extra.
