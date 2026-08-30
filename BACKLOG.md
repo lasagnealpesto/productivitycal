@@ -52,6 +52,17 @@ codice, lasciare che sia Xcode Cloud a creare la build, e provare se
 stavolta è selezionabile senza archivio manuale. Se sì, per gli
 aggiornamenti futuri basterà pushare — nessun lavoro manuale in Xcode.
 
+**Aggiornamento**: creato un secondo workflow Xcode Cloud, **"TestFlight
+Beta"**, agganciato esclusivamente al branch `productivitycal1.1` con
+distribuzione "TestFlight Internal Testing Only". Da ora, pushare su
+`productivitycal1.1` fa partire da solo una build di test **senza toccare
+`main`** — `main` resta riservato al momento in cui si è pronti a
+pubblicare davvero (quello è il workflow "Default", legato a `main`, che
+resta com'era). Numerazione build: gestita in automatico da Xcode Cloud in
+base ai build già esistenti su App Store Connect per l'app, quindi non
+dovrebbe mai collidere con la 21 già in review — da verificare comunque al
+primo build reale di questo nuovo workflow.
+
 ## 6. Sistemare le animazioni di swipe (calendario + tab)
 Entrambe percepite come macchinose, poco fluide:
 - **Swipe mesi nel calendario**: si "bugga" e slida male — probabilmente il
