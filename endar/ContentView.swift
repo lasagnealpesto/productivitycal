@@ -250,15 +250,20 @@ final class MoodStore: ObservableObject {
         onDayChanged?(key, mood)
     }
 
-    /// Sets every day in `dates` that is today or earlier to `mood`, overwriting
-    /// any existing value. For quickly filling in a whole month at once.
-    func fillPastDays(_ dates: [Date], with mood: Mood) {
+    /// Sets every day in `dates` that is today or earlier to `mood` (`nil`
+    /// clears it back to blank), overwriting any existing value. For quickly
+    /// filling in — or wiping — a whole month at once.
+    func fillPastDays(_ dates: [Date], with mood: Mood?) {
         let today = calendar.startOfDay(for: Date())
         for date in dates {
             let day = calendar.startOfDay(for: date)
             guard day <= today else { continue }
             let key = key(for: day)
-            moods[key] = mood
+            if let mood {
+                moods[key] = mood
+            } else {
+                moods.removeValue(forKey: key)
+            }
             onDayChanged?(key, mood)
         }
         save()
@@ -1004,7 +1009,7 @@ private struct CalendarView: View {
 
                     legendRow
 
-                    Text("fell behind? catch up on your year: tap any day to fill it in, or leave it blank.")
+                    Text("fell behind? catch up on your year: tap a day to cycle through work, personal, not, blank.")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(palette.textSecondary)
 
@@ -1030,11 +1035,9 @@ private struct CalendarView: View {
                     }
                     .buttonStyle(.plain)
                     .popover(isPresented: $isShowingQuickFill) {
-                        MoodColorPicker(palette: palette, includeBlank: false) { picked in
-                            if let picked {
-                                Haptics.light()
-                                moodStore.fillPastDays(monthDates, with: picked)
-                            }
+                        MoodColorPicker(palette: palette) { picked in
+                            Haptics.light()
+                            moodStore.fillPastDays(monthDates, with: picked)
                             isShowingQuickFill = false
                         }
                         .presentationCompactAdaptation(.popover)
@@ -1080,15 +1083,26 @@ private struct CalendarDayCell: View {
     let isDisabled: Bool
     let onSelect: (Mood?) -> Void
 
-    @State private var isShowingPicker = false
-
     private var dayNumber: String {
         String(Calendar.current.component(.day, from: date))
     }
 
+    /// blank → work → personal → not → blank. A tap advances one step with
+    /// no popover in the way, so catching up on several past days is just a
+    /// quick string of taps instead of a tap-then-wait-then-pick each time.
+    private var nextMoodInCycle: Mood? {
+        switch mood {
+        case nil: return .workProductive
+        case .workProductive: return .personallyProductive
+        case .personallyProductive: return .notProductive
+        case .notProductive: return nil
+        }
+    }
+
     var body: some View {
         Button {
-            isShowingPicker = true
+            Haptics.light()
+            onSelect(nextMoodInCycle)
         } label: {
             Text(dayNumber)
                 .font(.system(size: 13, weight: .semibold))
@@ -1108,14 +1122,7 @@ private struct CalendarDayCell: View {
         .disabled(isDisabled)
         .accessibilityLabel("day \(dayNumber)")
         .accessibilityValue(mood?.title ?? "blank")
-        .popover(isPresented: $isShowingPicker) {
-            MoodColorPicker(palette: palette) { picked in
-                Haptics.light()
-                onSelect(picked)
-                isShowingPicker = false
-            }
-            .presentationCompactAdaptation(.popover)
-        }
+        .accessibilityHint("tap to cycle to the next status")
     }
 }
 
