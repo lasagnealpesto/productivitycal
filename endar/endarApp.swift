@@ -112,21 +112,29 @@ private struct AppRootView: View {
                 )
                     .transition(.opacity)
             } else {
+                #if canImport(Supabase)
+                LoginView(
+                    onAppleSignIn: signInWithApple,
+                    onGoogleSignIn: signInWithGoogle,
+                    isAppleSigningIn: isAppleSigningIn,
+                    isGoogleSigningIn: isGoogleSigningIn,
+                    onEmailSignIn: signInWithEmail,
+                    onEmailSignUp: signUpWithEmail,
+                    isEmailSigningIn: isEmailSigningIn,
+                    emailAuthError: emailAuthError
+                )
+                .transition(.opacity)
+                .allowsHitTesting(!showLaunchSplash)
+                #else
                 LoginView(
                     onAppleSignIn: signInWithApple,
                     onGoogleSignIn: signInWithGoogle,
                     isAppleSigningIn: isAppleSigningIn,
                     isGoogleSigningIn: isGoogleSigningIn
-                    #if canImport(Supabase)
-                    ,
-                    onEmailSignIn: signInWithEmail,
-                    onEmailSignUp: signUpWithEmail,
-                    isEmailSigningIn: isEmailSigningIn,
-                    emailAuthError: emailAuthError
-                    #endif
                 )
                 .transition(.opacity)
                 .allowsHitTesting(!showLaunchSplash)
+                #endif
             }
 
             if showLaunchSplash {
