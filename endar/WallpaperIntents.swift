@@ -25,13 +25,17 @@ struct WallpaperAutomationGuideView: View {
     /// Index-aligned with `WallpaperSetupGuideContent.steps` (the completion
     /// step has no entry, it has its own message already).
     private static let stepCaptions: [String] = [
-        "one tap, and the hardest part is already done.",
-        "now let's set up when this runs, from here it's two minutes.",
+        "two minutes, and this runs itself from now on.",
         "let's build the routine that keeps you consistent.",
         "pick when it happens, then forget about it.",
         "your daily nudge, set once.",
         "so it runs with zero taps, every time.",
-        "this connects productivitycal to your lock screen.",
+        "now let's connect productivitycal to your lock screen.",
+        "this pulls your progress straight from the app.",
+        "and this puts it right where you'll see it.",
+        "two actions, working together automatically.",
+        "this is the part that matters most.",
+        "just double check this one detail.",
         "save it, and you're one tap from a life you can see."
     ]
 

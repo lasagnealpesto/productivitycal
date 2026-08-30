@@ -24,17 +24,13 @@ il mood viene salvato subito, senza aprire l'app (widget interattivo iOS
 `Productivity_Widget.swift` e pushato su `productivitycal1.1` — da
 verificare sul device/TestFlight che i pallini funzionino davvero.
 
-## 3. Automazione wallpaper con meno step — ✅ FATTO
-Da 12 step manuali a 8: aggiunto un primo step "importa la shortcut
-pronta" che apre un link iCloud (la shortcut con le due azioni "generate
-wallpaper" → "set wallpaper photo" già collegate e "lock screen" già
-scelto, condivisa una volta da Shortcuts, non generata a mano — niente
-formato binario indovinato). I vecchi step 6-11 (cercare e collegare le
-azioni a mano) sono sostituiti da un solo step testuale: "aggiungi
-l'azione 'Esegui Shortcut' e scegli quella importata". Il link vive in
-`WallpaperSetupGuideContent.importShortcutURL` (`endar/ContentView.swift`).
-Se in futuro cambia qualcosa nelle azioni sottostanti, va rifatta la
-shortcut condivisa e aggiornato quel link.
+## 3. Automazione wallpaper con meno step — ↩️ RIPRISTINATO ai 12 step originali
+Avevo provato a ridurli a 8 con un primo step "importa la shortcut pronta"
+(link iCloud) al posto dei vecchi step 6-11 manuali — su richiesta,
+ripristinato il flusso originale a 12 screenshot passo-passo. Il codice
+del link/step di import è stato rimosso da `ContentView.swift`. Se in
+futuro si vuole ritentare la riduzione degli step, l'idea e il link
+iCloud della shortcut restano validi, andrebbero solo re-implementati.
 
 ## 4. Icona dell'app
 L'icona attuale (freccia + scintilla) viene dal progetto originale

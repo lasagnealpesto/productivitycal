@@ -1343,13 +1343,6 @@ private enum WallpaperDotShapeOption: String, CaseIterable, Identifiable {
 
 enum WallpaperSetupStepContent {
     case screenshot(imageName: String)
-    /// A one-tap step: opens a pre-built Shortcut (the two wallpaper actions,
-    /// already wired together) via its iCloud share link, so the user never
-    /// has to search for and connect those actions by hand.
-    case importShortcut
-    /// A text-only step for instructions that don't have (or no longer need)
-    /// an annotated screenshot.
-    case instruction(title: String, detail: String, systemImage: String)
     case completion
 }
 
@@ -1359,33 +1352,15 @@ struct WallpaperSetupStep: Identifiable {
 }
 
 enum WallpaperSetupGuideContent {
-    /// A pre-built Shortcut ("productivitycal wallpaper": generate wallpaper
-    /// -> set wallpaper photo, already wired together, lock screen only)
-    /// shared via iCloud link. Importing it replaces the old "search for and
-    /// wire up two actions by hand" steps with a single tap.
-    static let importShortcutURL = URL(string: "https://www.icloud.com/shortcuts/b63e7a3591be492e88cc0d319dafe72f")!
-
-    /// Screenshots 06-11 of the old 12-step flow (building the shortcut's
-    /// actions from scratch) are replaced by `.importShortcut` + a single
-    /// `.instruction` step now that the actions come pre-wired.
+    /// Drop the 12 annotated screenshot files into endar/screenshots with these exact
+    /// names (in this order) to complete the tutorial — no other code change needed.
     static let steps: [WallpaperSetupStep] = {
-        var steps: [WallpaperSetupStep] = []
+        let imageNames = (1...12).map { String(format: "wallpaper-setup-%02d.png", $0) }
 
-        func append(_ content: WallpaperSetupStepContent) {
-            steps.append(WallpaperSetupStep(id: steps.count, content: content))
+        var steps = imageNames.enumerated().map { index, name in
+            WallpaperSetupStep(id: index, content: .screenshot(imageName: name))
         }
-
-        append(.importShortcut)
-        for index in 1...5 {
-            append(.screenshot(imageName: String(format: "wallpaper-setup-%02d.png", index)))
-        }
-        append(.instruction(
-            title: "add \"run shortcut\"",
-            detail: "tap the + to add an action, search \"run shortcut\", and choose \"productivitycal wallpaper\", the one you just imported.",
-            systemImage: "bolt.fill"
-        ))
-        append(.screenshot(imageName: "wallpaper-setup-12.png"))
-        append(.completion)
+        steps.append(WallpaperSetupStep(id: imageNames.count, content: .completion))
         return steps
     }()
 }
@@ -1694,12 +1669,6 @@ private struct WallpaperSetupStepCard: View {
             WallpaperSetupScreenshot(imageName: imageName, palette: palette)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, 4)
-        case .importShortcut:
-            WallpaperImportShortcutCard(palette: palette)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .instruction(let title, let detail, let systemImage):
-            WallpaperInstructionCard(title: title, detail: detail, systemImage: systemImage, palette: palette)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .completion:
             VStack(spacing: 20) {
                 Image(systemName: "checkmark.circle.fill")
@@ -1714,78 +1683,6 @@ private struct WallpaperSetupStepCard: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-}
-
-private struct WallpaperImportShortcutCard: View {
-    let palette: AppPalette
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "square.and.arrow.down.on.square.fill")
-                .font(.system(size: 48, weight: .semibold))
-                .foregroundStyle(palette.textPrimary)
-
-            VStack(spacing: 8) {
-                Text("import the ready-made shortcut")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(palette.textPrimary)
-                    .multilineTextAlignment(.center)
-
-                Text("it already has the two actions wired together, so you won't have to search for and connect them yourself.")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(palette.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(.horizontal, 24)
-
-            Button {
-                Haptics.light()
-                #if canImport(UIKit)
-                UIApplication.shared.open(WallpaperSetupGuideContent.importShortcutURL)
-                #endif
-            } label: {
-                Text("import shortcut")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(palette.background)
-                    .frame(maxWidth: 260, minHeight: 50)
-            }
-            .buttonStyle(.plain)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(palette.textPrimary)
-            )
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct WallpaperInstructionCard: View {
-    let title: String
-    let detail: String
-    let systemImage: String
-    let palette: AppPalette
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: systemImage)
-                .font(.system(size: 48, weight: .semibold))
-                .foregroundStyle(palette.textPrimary)
-
-            VStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(palette.textPrimary)
-                    .multilineTextAlignment(.center)
-
-                Text(detail)
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(palette.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(.horizontal, 24)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
