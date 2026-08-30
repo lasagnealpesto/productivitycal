@@ -14,15 +14,15 @@ Formato small (streak + stato) e medium (streak + mini-preview 7 giorni)
 entrambi funzionanti; tap sul widget apre l'app sulla home via deep link
 `productivitycal://log`.
 
-**Aggiunta**: se il mood di oggi non è ancora segnato, al posto del testo
-"tap to log today" il widget mostra 3 pallini colorati toccabili (lavoro /
-personale / non produttivo) — toccandone uno il mood viene salvato subito,
-senza aprire l'app (widget interattivo iOS 17+, via 3 `AppIntent` dedicati
-in `WidgetExtensionSource.swift`: `LogWorkProductiveMoodIntent`,
-`LogPersonallyProductiveMoodIntent`, `LogNotProductiveMoodIntent`).
-**Va ricopiato il contenuto aggiornato del file nel target Xcode**
-(`Productivity_Widget.swift`) per attivarlo, stesso procedimento fatto la
-prima volta — non basta pushare il codice, va incollato di nuovo a mano.
+**Aggiunta — ✅ FATTO anche questa**: se il mood di oggi non è ancora
+segnato, al posto del testo "tap to log today" il widget mostra 3 pallini
+colorati toccabili (lavoro / personale / non produttivo) — toccandone uno
+il mood viene salvato subito, senza aprire l'app (widget interattivo iOS
+17+, via 3 `AppIntent` dedicati in `WidgetExtensionSource.swift`:
+`LogWorkProductiveMoodIntent`, `LogPersonallyProductiveMoodIntent`,
+`LogNotProductiveMoodIntent`). Contenuto ricopiato in
+`Productivity_Widget.swift` e pushato su `productivitycal1.1` — da
+verificare sul device/TestFlight che i pallini funzionino davvero.
 
 ## 3. Automazione wallpaper con meno step — ✅ FATTO
 Da 12 step manuali a 8: aggiunto un primo step "importa la shortcut
@@ -87,7 +87,7 @@ Le screenshot attuali su App Store Connect sono da rifare/arricchire:
 3. **Screenshot della notifica**: mostrare la notifica giornaliera (18:00)
    com'è realmente su schermo, per comunicare il reminder automatico.
 
-## 8. Login + backend vero, dati legati al profilo — 🟡 codice pronto, manca 1 step in Xcode
+## 8. Login + backend vero, dati legati al profilo — ✅ FATTO, da verificare su device
 Backend Supabase creato (progetto "productivitycal", ref `nxcdjnmiulliwpwnbbsx`,
 org Supabase esistente) con tabella `moods` (user_id, day, mood, updated_at)
 e row-level-security per account. Lato codice:
@@ -112,12 +112,10 @@ e row-level-security per account. Lato codice:
   revisore"/"Sign-In Information" di App Store Connect quando risottometti,
   così il reviewer può accedere senza un vero account Apple/Google. Non
   condividerla altrove.
-- **Manca solo**: in Xcode, File → Add Package Dependencies → incolla
-  `https://github.com/supabase/supabase-swift` → aggiungi il prodotto
-  "Supabase" al target "endar". ~2 minuti, poi build — a differenza del
-  widget qui gli errori di compilazione (se ce ne sono) li vedi subito in
-  Xcode, quindi è normale/atteso dover sistemare qualche dettaglio all'API
-  al primo build.
+- Pacchetto `supabase-swift` aggiunto in Xcode, build locale riuscita
+  ("Build Succeeded"), tutto pushato su `productivitycal1.1`. Resta da
+  confermare sul device/TestFlight che login e sync funzionino davvero
+  end-to-end (non solo che compili).
 - Non ancora fatto (rifinitura futura, non blocca): passare un `nonce` nello
   scambio Sign in with Apple → Supabase per protezione anti-replay più
   forte; oggi funziona ma senza quell'indurimento extra.
