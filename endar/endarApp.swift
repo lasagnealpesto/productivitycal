@@ -86,11 +86,19 @@ private struct AppRootView: View {
     @State private var appleLogoutCoordinator: AppleLogoutCoordinator?
     @AppStorage("auth.apple.user.id.v1") private var storedAppleUserID: String = ""
     @AppStorage("auth.provider.v1") private var authProviderRaw: String = ""
+    // Each restore path flips its own flag when it's done (success or not),
+    // so the splash never hands off to LoginView/ContentView before we
+    // actually know which one is correct — that race is what used to flash
+    // the login screen for a frame on an already-logged-in launch.
+    @State private var googleCheckDone = false
+    @State private var appleCheckDone = false
     #if canImport(Supabase)
     @State private var isEmailSigningIn = false
     @State private var emailAuthError: String?
+    @State private var hasAttemptedEmailRestore = false
+    @State private var emailCheckDone = false
     #endif
-    
+
     private var isAuthBypassedOnSimulator: Bool {
         #if targetEnvironment(simulator)
         true
@@ -101,6 +109,15 @@ private struct AppRootView: View {
 
     private var isSessionAuthenticated: Bool {
         hasAuthenticated || isAuthBypassedOnSimulator
+    }
+
+    private var isSessionCheckComplete: Bool {
+        guard !isAuthBypassedOnSimulator else { return true }
+        #if canImport(Supabase)
+        return googleCheckDone && appleCheckDone && emailCheckDone
+        #else
+        return googleCheckDone && appleCheckDone
+        #endif
     }
 
     var body: some View {
@@ -138,7 +155,12 @@ private struct AppRootView: View {
             }
 
             if showLaunchSplash {
-                LaunchSplashView {
+                // A plain Bool parameter would freeze at whatever value was
+                // true when .task first launched inside LaunchSplashView (a
+                // value-type struct); a Binding reads the live value from
+                // AppRootView's own @State on every check, which is what
+                // lets the splash actually wait for the restore to finish.
+                LaunchSplashView(isSessionCheckComplete: Binding(get: { isSessionCheckComplete }, set: { _ in })) {
                     withAnimation(.easeInOut(duration: 0.24)) {
                         showLaunchSplash = false
                     }
@@ -153,6 +175,9 @@ private struct AppRootView: View {
             guard !isAuthBypassedOnSimulator else { return }
             restorePreviousGoogleSessionIfNeeded()
             restorePreviousAppleSessionIfNeeded()
+            #if canImport(Supabase)
+            restorePreviousEmailSessionIfNeeded()
+            #endif
         }
     }
 
@@ -236,6 +261,7 @@ private struct AppRootView: View {
         hasAttemptedGoogleRestore = true
 
         GIDSignIn.sharedInstance.restorePreviousSignIn { user, _ in
+            defer { googleCheckDone = true }
             guard user != nil else { return }
             authProviderRaw = SessionAuthProvider.google.rawValue
             storedAppleUserID = ""
@@ -246,16 +272,41 @@ private struct AppRootView: View {
     private func restorePreviousAppleSessionIfNeeded() {
         guard !hasAttemptedAppleRestore else { return }
         hasAttemptedAppleRestore = true
-        guard !storedAppleUserID.isEmpty else { return }
+        guard !storedAppleUserID.isEmpty else {
+            appleCheckDone = true
+            return
+        }
 
         ASAuthorizationAppleIDProvider().getCredentialState(forUserID: storedAppleUserID) { state, _ in
-            guard state == .authorized else { return }
             DispatchQueue.main.async {
+                defer { appleCheckDone = true }
+                guard state == .authorized else { return }
                 authProviderRaw = SessionAuthProvider.apple.rawValue
                 completeLogin()
             }
         }
     }
+
+    #if canImport(Supabase)
+    /// Apple/Google restore their own native session and separately drive
+    /// `hasAuthenticated`; a plain email account has no such native restore,
+    /// so without this it had to log in again on every single launch. Any
+    /// persisted, still-valid Supabase session — from any provider — is
+    /// proof enough to skip the login screen.
+    private func restorePreviousEmailSessionIfNeeded() {
+        guard !hasAttemptedEmailRestore else { return }
+        hasAttemptedEmailRestore = true
+
+        Task {
+            let hasPersistedSession = (try? await MoodSyncService.client.auth.session) != nil
+            await MainActor.run {
+                emailCheckDone = true
+                guard hasPersistedSession, !hasAuthenticated else { return }
+                completeLogin()
+            }
+        }
+    }
+    #endif
 
     private func signInWithApple() {
         guard !isAuthBypassedOnSimulator else {
@@ -409,6 +460,7 @@ private struct AppRootView: View {
 }
 
 private struct LaunchSplashView: View {
+    @Binding var isSessionCheckComplete: Bool
     let onFinished: () -> Void
 
     @State private var hasStarted = false
@@ -507,6 +559,7 @@ private struct LaunchSplashView: View {
                 containerOpacity = 0.0
             }
             try? await Task.sleep(nanoseconds: 180_000_000)
+            await waitForSessionCheck()
             onFinished()
             return
         }
@@ -540,7 +593,21 @@ private struct LaunchSplashView: View {
         }
 
         try? await Task.sleep(nanoseconds: 220_000_000)
+        await waitForSessionCheck()
         onFinished()
+    }
+
+    /// Blocks the splash's hand-off until the Apple/Google/email restore
+    /// checks in AppRootView have all reported in — otherwise the fixed
+    /// animation timer above could finish first and reveal LoginView for a
+    /// frame before the real "already logged in" answer comes back. Capped
+    /// so a stuck check (no network, a hung SDK callback) can't strand the
+    /// splash on screen forever.
+    private func waitForSessionCheck() async {
+        let deadline = Date().addingTimeInterval(2.5)
+        while !isSessionCheckComplete && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 30_000_000)
+        }
     }
 }
 
