@@ -16,9 +16,9 @@ struct WallpaperAutomationGuideView: View {
     @State private var selectedWallpaperSetupStep = 0
     @State private var stepPulse = false
 
-    // A light, airy background (rather than following the user's own theme
-    // setting) so each dark tutorial screenshot reads as a floating card.
-    private let palette = AppTheme.light.palette
+    // Always matches the dark background baked into the tutorial screenshots,
+    // regardless of the user's light/dark theme setting.
+    private let palette = AppTheme.dark.palette
 
     /// One motivating line per screenshot step, framing the mechanical
     /// instruction baked into the photo as progress toward a bigger goal.

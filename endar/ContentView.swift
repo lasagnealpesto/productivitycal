@@ -195,7 +195,20 @@ private struct CustomTabBar: View {
         }
         .padding(.top, 10)
         .padding(.bottom, 6)
-        .background(palette.surface)
+        .background(tabBarBackground)
+    }
+
+    @ViewBuilder
+    private var tabBarBackground: some View {
+        if #available(iOS 26.0, *) {
+            Color.clear
+                .glassEffect(
+                    .regular.tint(palette.surface.opacity(0.55)),
+                    in: Rectangle()
+                )
+        } else {
+            palette.surface
+        }
     }
 }
 
