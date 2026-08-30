@@ -7,17 +7,67 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		82DBA7E630438C370059B995 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 82DBA7E530438C370059B995 /* WidgetKit.framework */; };
+		82DBA7E830438C370059B995 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 82DBA7E730438C370059B995 /* SwiftUI.framework */; };
+		82DBA7F530438C380059B995 /* Productivity WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 82DBA7E330438C370059B995 /* Productivity WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		82DBA7FE304427DD0059B995 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 82DBA7FD304427DD0059B995 /* Supabase */; };
 		A1B2C3D62F4C000100AA0001 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D52F4C000100AA0001 /* GoogleSignIn */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		82DBA7F330438C380059B995 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 32AE455E2F3A900000576A35 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 82DBA7E230438C370059B995;
+			remoteInfo = "Productivity WidgetExtension";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		82DBA7F630438C380059B995 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				82DBA7F530438C380059B995 /* Productivity WidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		32AE45662F3A900000576A35 /* endar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = endar.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		82DBA7E330438C370059B995 /* Productivity WidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Productivity WidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		82DBA7E530438C370059B995 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		82DBA7E730438C370059B995 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		82DBA7FB304392D90059B995 /* Productivity WidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Productivity WidgetExtension.entitlements"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		82DBA7F930438C380059B995 /* Exceptions for "Productivity Widget" folder in "Productivity WidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 82DBA7E230438C370059B995 /* Productivity WidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		32AE45682F3A900000576A35 /* endar */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = endar;
+			sourceTree = "<group>";
+		};
+		82DBA7E930438C370059B995 /* Productivity Widget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				82DBA7F930438C380059B995 /* Exceptions for "Productivity Widget" folder in "Productivity WidgetExtension" target */,
+			);
+			path = "Productivity Widget";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -27,7 +77,17 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				82DBA7FE304427DD0059B995 /* Supabase in Frameworks */,
 				A1B2C3D62F4C000100AA0001 /* GoogleSignIn in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		82DBA7E030438C370059B995 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				82DBA7E830438C370059B995 /* SwiftUI.framework in Frameworks */,
+				82DBA7E630438C370059B995 /* WidgetKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -37,7 +97,10 @@
 		32AE455D2F3A900000576A35 = {
 			isa = PBXGroup;
 			children = (
+				82DBA7FB304392D90059B995 /* Productivity WidgetExtension.entitlements */,
 				32AE45682F3A900000576A35 /* endar */,
+				82DBA7E930438C370059B995 /* Productivity Widget */,
+				82DBA7E430438C370059B995 /* Frameworks */,
 				32AE45672F3A900000576A35 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -46,8 +109,18 @@
 			isa = PBXGroup;
 			children = (
 				32AE45662F3A900000576A35 /* endar.app */,
+				82DBA7E330438C370059B995 /* Productivity WidgetExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		82DBA7E430438C370059B995 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				82DBA7E530438C370059B995 /* WidgetKit.framework */,
+				82DBA7E730438C370059B995 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -60,10 +133,12 @@
 				32AE45622F3A900000576A35 /* Sources */,
 				32AE45632F3A900000576A35 /* Frameworks */,
 				32AE45642F3A900000576A35 /* Resources */,
+				82DBA7F630438C380059B995 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				82DBA7F430438C380059B995 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				32AE45682F3A900000576A35 /* endar */,
@@ -71,10 +146,33 @@
 			name = endar;
 			packageProductDependencies = (
 				A1B2C3D52F4C000100AA0001 /* GoogleSignIn */,
+				82DBA7FD304427DD0059B995 /* Supabase */,
 			);
 			productName = endar;
 			productReference = 32AE45662F3A900000576A35 /* endar.app */;
 			productType = "com.apple.product-type.application";
+		};
+		82DBA7E230438C370059B995 /* Productivity WidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 82DBA7FA30438C380059B995 /* Build configuration list for PBXNativeTarget "Productivity WidgetExtension" */;
+			buildPhases = (
+				82DBA7DF30438C370059B995 /* Sources */,
+				82DBA7E030438C370059B995 /* Frameworks */,
+				82DBA7E130438C370059B995 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				82DBA7E930438C370059B995 /* Productivity Widget */,
+			);
+			name = "Productivity WidgetExtension";
+			packageProductDependencies = (
+			);
+			productName = "Productivity WidgetExtension";
+			productReference = 82DBA7E330438C370059B995 /* Productivity WidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -87,6 +185,9 @@
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					32AE45652F3A900000576A35 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					82DBA7E230438C370059B995 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -102,6 +203,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A1B2C3D42F4C000100AA0001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				82DBA7FC304427DD0059B995 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 32AE45672F3A900000576A35 /* Products */;
@@ -109,12 +211,20 @@
 			projectRoot = "";
 			targets = (
 				32AE45652F3A900000576A35 /* endar */,
+				82DBA7E230438C370059B995 /* Productivity WidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		32AE45642F3A900000576A35 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		82DBA7E130438C370059B995 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -131,7 +241,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		82DBA7DF30438C370059B995 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		82DBA7F430438C380059B995 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 82DBA7E230438C370059B995 /* Productivity WidgetExtension */;
+			targetProxy = 82DBA7F330438C380059B995 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		32AE456F2F3A900100576A35 /* Debug */ = {
@@ -370,6 +495,73 @@
 			};
 			name = Release;
 		};
+		82DBA7F730438C380059B995 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = "Productivity WidgetExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9Z8F9Q282X;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Productivity Widget/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Productivity Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.productivitycal.productivitycal.Productivity-Widget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		82DBA7F830438C380059B995 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = "Productivity WidgetExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9Z8F9Q282X;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Productivity Widget/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Productivity Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.productivitycal.productivitycal.Productivity-Widget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -391,9 +583,26 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		82DBA7FA30438C380059B995 /* Build configuration list for PBXNativeTarget "Productivity WidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				82DBA7F730438C380059B995 /* Debug */,
+				82DBA7F830438C380059B995 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		82DBA7FC304427DD0059B995 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
 		A1B2C3D42F4C000100AA0001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
@@ -405,6 +614,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		82DBA7FD304427DD0059B995 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 82DBA7FC304427DD0059B995 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
 		A1B2C3D52F4C000100AA0001 /* GoogleSignIn */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A1B2C3D42F4C000100AA0001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
