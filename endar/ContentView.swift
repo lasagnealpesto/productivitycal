@@ -343,10 +343,15 @@ final class DailyMoodNotificationScheduler {
     private let center = UNUserNotificationCenter.current()
     private let calendar = Calendar.current
     private let bodyText = "how was your day?"
-    private let reminderHour = 18
+    private let reminderHour = 19
+    private let reminderMinute = 30
     private let horizonDays = 21
     private let moodStorageKey = "moodStore.v1"
-    private let sixPMPrefix = "endar.daily.1800."
+    /// Prefix common to every reminder this scheduler owns, past and
+    /// present — matching on this (rather than baking the reminder time
+    /// into it) means a future time change still finds and clears out
+    /// notifications scheduled under the old time.
+    private let reminderIdPrefix = "endar.daily."
     private var hasConfigured = false
 
     private init() {}
@@ -387,7 +392,7 @@ final class DailyMoodNotificationScheduler {
 
                 let managedIds = requests
                     .map(\.identifier)
-                    .filter { $0.hasPrefix(self.sixPMPrefix) }
+                    .filter { $0.hasPrefix(self.reminderIdPrefix) }
                 if !managedIds.isEmpty {
                     self.center.removePendingNotificationRequests(withIdentifiers: managedIds)
                 }
@@ -406,13 +411,13 @@ final class DailyMoodNotificationScheduler {
 
             let isToday = calendar.isDate(day, inSameDayAs: now)
             if !isToday || !hasMoodSelected(on: day) {
-                scheduleNotification(hour: reminderHour, for: day, prefix: sixPMPrefix)
+                scheduleNotification(hour: reminderHour, minute: reminderMinute, for: day, prefix: reminderIdPrefix)
             }
         }
     }
 
-    private func scheduleNotification(hour: Int, for day: Date, prefix: String) {
-        guard let fireDate = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day) else { return }
+    private func scheduleNotification(hour: Int, minute: Int, for day: Date, prefix: String) {
+        guard let fireDate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) else { return }
         guard fireDate > Date() else { return }
 
         let content = UNMutableNotificationContent()
