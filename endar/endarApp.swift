@@ -219,9 +219,17 @@ private struct AppRootView: View {
 
         Task {
             do {
-                try await MoodSyncService.signUpWithPassword(email: email, password: password)
+                let hasSession = try await MoodSyncService.signUpWithPassword(email: email, password: password)
                 await MainActor.run {
                     isEmailSigningIn = false
+                    guard hasSession else {
+                        // The project's auth settings require confirming the
+                        // email first — there's no session yet, so signing
+                        // the device in now would show the app with nothing
+                        // actually synced.
+                        emailAuthError = "check your inbox to confirm your email, then sign in."
+                        return
+                    }
                     authProviderRaw = SessionAuthProvider.email.rawValue
                     storedAppleUserID = ""
                     completeLogin()

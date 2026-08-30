@@ -115,8 +115,12 @@ enum MoodSyncService {
         _ = try await client.auth.signIn(email: email, password: password)
     }
 
-    static func signUpWithPassword(email: String, password: String) async throws {
-        _ = try await client.auth.signUp(email: email, password: password)
+    /// Returns `true` if this created a session immediately, `false` if the
+    /// account was created but the project's auth settings require
+    /// confirming the email address first (no session until then).
+    static func signUpWithPassword(email: String, password: String) async throws -> Bool {
+        let response = try await client.auth.signUp(email: email, password: password)
+        return response.session != nil
     }
 
     /// Pulls the signed-in user's full remote history, fills any local gaps
