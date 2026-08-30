@@ -90,45 +90,10 @@ struct ContentView: View {
     let onDeleteAccount: () -> Void
 
     @State private var selectedTab: Tab = .home
-    @State private var tabDragOffset: CGFloat = 0
     @StateObject private var moodStore = MoodStore()
     @AppStorage("theme.mode.v1") private var themeRaw: String = AppTheme.dark.rawValue
 
     enum Tab: CaseIterable { case home, calendar, set }
-
-    private static let tabSwipeSettle = Animation.interpolatingSpring(stiffness: 300, damping: 30)
-
-    /// Slides the current tab out — continuing smoothly from wherever `tabDragOffset`
-    /// already is (e.g. mid-drag) — then swaps to the new tab and slides it in from
-    /// the opposite side. Mirrors `CalendarView.swipeToMonth`. Bounces back in place
-    /// at the first/last tab instead of sliding off into nothing.
-    private func swipeToTab(delta: Int, containerWidth: CGFloat) {
-        let all = Tab.allCases
-        guard let currentIndex = all.firstIndex(of: selectedTab) else { return }
-        let newIndex = currentIndex + delta
-
-        guard all.indices.contains(newIndex) else {
-            withAnimation(Self.tabSwipeSettle) {
-                tabDragOffset = 0
-            }
-            return
-        }
-
-        let travel = max(containerWidth, 320)
-        let exitOffset: CGFloat = delta > 0 ? -travel : travel
-
-        withAnimation(Self.tabSwipeSettle) {
-            tabDragOffset = exitOffset
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-            selectedTab = all[newIndex]
-            tabDragOffset = -exitOffset
-            withAnimation(Self.tabSwipeSettle) {
-                tabDragOffset = 0
-            }
-        }
-    }
 
     init(
         onLogout: @escaping () -> Void = {},
@@ -147,7 +112,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
+        VStack(spacing: 0) {
             TabView(selection: $selectedTab) {
                 HomeView(
                     palette: palette,
@@ -155,69 +120,82 @@ struct ContentView: View {
                     onDeleteAccount: onDeleteAccount
                 )
                     .environmentObject(moodStore)
-                    .tabItem {
-                        Label("home", systemImage: "house")
-                    }
                     .tag(Tab.home)
 
                 CalendarView(themeRaw: $themeRaw, palette: palette)
                     .environmentObject(moodStore)
-                    .tabItem {
-                        Label("calendar", systemImage: "calendar")
-                    }
                     .tag(Tab.calendar)
 
                 SetView(themeRaw: $themeRaw, palette: palette)
-                    .tabItem {
-                        Label("set", systemImage: "slider.horizontal.3")
-                    }
                     .tag(Tab.set)
             }
-            .tint(palette.accent)
-            .toolbarBackground(palette.surface, for: .tabBar)
-            .toolbarBackground(.visible, for: .tabBar)
+            .tabViewStyle(.page(indexDisplayMode: .never))
             .preferredColorScheme(theme == .dark ? .dark : .light)
-            .offset(x: tabDragOffset)
-            .clipped()
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 20)
-                    .onChanged { value in
-                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                        tabDragOffset = value.translation.width
-                    }
-                    .onEnded { value in
-                        guard abs(value.translation.width) > abs(value.translation.height) else {
-                            withAnimation(Self.tabSwipeSettle) {
-                                tabDragOffset = 0
-                            }
-                            return
-                        }
-                        let threshold: CGFloat = 60
-                        let predicted = value.predictedEndTranslation.width
-                        if value.translation.width < -threshold || predicted < -geometry.size.width * 0.3 {
-                            swipeToTab(delta: 1, containerWidth: geometry.size.width)
-                        } else if value.translation.width > threshold || predicted > geometry.size.width * 0.3 {
-                            swipeToTab(delta: -1, containerWidth: geometry.size.width)
-                        } else {
-                            withAnimation(Self.tabSwipeSettle) {
-                                tabDragOffset = 0
-                            }
-                        }
-                    }
-            )
-            .onReceive(NotificationCenter.default.publisher(for: .productivitycalOpenLog)) { _ in
-                withAnimation(Self.tabSwipeSettle) {
-                    selectedTab = .home
-                }
-            }
-            #if canImport(Supabase)
-            .task {
-                moodStore.onDayChanged = MoodSyncService.pushSingleDay
-                await MoodSyncService.syncNow(store: moodStore)
-            }
-            #endif
+
+            CustomTabBar(selectedTab: $selectedTab, palette: palette)
         }
+        .background(palette.background.ignoresSafeArea())
+        .onReceive(NotificationCenter.default.publisher(for: .productivitycalOpenLog)) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedTab = .home
+            }
+        }
+        #if canImport(Supabase)
+        .task {
+            moodStore.onDayChanged = MoodSyncService.pushSingleDay
+            await MoodSyncService.syncNow(store: moodStore)
+        }
+        #endif
+    }
+}
+
+/// Bottom tab bar, standing in for the system one — `.tabViewStyle(.page)`
+/// (used for real, native, buttery-smooth swipe physics between tabs)
+/// hides the system tab bar entirely, so this replaces it.
+private struct CustomTabBar: View {
+    @Binding var selectedTab: ContentView.Tab
+    let palette: AppPalette
+
+    private func icon(for tab: ContentView.Tab) -> String {
+        switch tab {
+        case .home: return "house"
+        case .calendar: return "calendar"
+        case .set: return "slider.horizontal.3"
+        }
+    }
+
+    private func title(for tab: ContentView.Tab) -> String {
+        switch tab {
+        case .home: return "home"
+        case .calendar: return "calendar"
+        case .set: return "set"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(ContentView.Tab.allCases, id: \.self) { tab in
+                Button {
+                    Haptics.light()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTab = tab
+                    }
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: icon(for: tab))
+                            .font(.system(size: 20, weight: .semibold))
+                        Text(title(for: tab))
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundStyle(selectedTab == tab ? palette.accent : palette.textSecondary)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+        .background(palette.surface)
     }
 }
 
@@ -820,10 +798,26 @@ private struct CalendarView: View {
     @State private var selectedYear: Int
     @State private var selectedMonth: Int
     @State private var isShowingQuickFill = false
-    @State private var dragOffset: CGFloat = 0
-    @State private var calendarWidth: CGFloat = 350
+    /// -1/0/+1 window around the selected month, driving a native paged
+    /// TabView so the month swipe is genuinely fluid (real adjacent content
+    /// sliding in, never a blank gap) instead of a hand-rolled offset.
+    @State private var monthPageSelection = 0
 
     private let calendar = Calendar.current
+
+    /// Every month page is padded to exactly 6 rows so all three carousel
+    /// pages (and every month ever) share one fixed height — no live
+    /// measurement needed, and no layout jump when the row count would
+    /// otherwise differ (5 vs 6 weeks in a month).
+    private static let calendarRowCount = 6
+    private static let calendarCellHeight: CGFloat = 42
+    private static let calendarHeaderHeight: CGFloat = 20
+    private static let calendarRowSpacing: CGFloat = 8
+    private static let calendarPageHeight: CGFloat =
+        calendarHeaderHeight +
+        CGFloat(calendarRowCount) * calendarCellHeight +
+        CGFloat(calendarRowCount) * calendarRowSpacing +
+        24 // outer padding(12) top + bottom
 
     init(themeRaw: Binding<String>, palette: AppPalette) {
         let today = Date()
@@ -867,26 +861,108 @@ private struct CalendarView: View {
         selectedYear = newYear
     }
 
-    private static let monthSwipeSettle = Animation.interpolatingSpring(stiffness: 300, damping: 30)
+    /// Animates the native page carousel to -1/+1 (same physics as a real
+    /// swipe), then `onChange(of: monthPageSelection)` below does the actual
+    /// month change and silently recenters back to 0.
+    private func animateToMonthPage(delta: Int) {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            monthPageSelection = delta
+        }
+    }
 
-    /// Slides the current month out — continuing smoothly from wherever `dragOffset`
-    /// already is (e.g. mid-drag) — then swaps to the new month and slides it in
-    /// from the opposite side. The exit distance tracks the actual grid width so the
-    /// old month always fully leaves the screen instead of jumping a fixed distance.
-    private func swipeToMonth(delta: Int) {
-        let travel = max(calendarWidth, 280)
-        let exitOffset: CGFloat = delta > 0 ? -travel : travel
+    /// Called whenever the page carousel settles on -1 or +1 (from a swipe
+    /// or from `animateToMonthPage`): commits the month change, then jumps
+    /// back to the center page with no animation — invisible, because the
+    /// newly-centered page renders the exact dates the user is already
+    /// looking at.
+    private func commitMonthPageIfNeeded() {
+        guard monthPageSelection != 0 else { return }
+        stepMonth(by: monthPageSelection)
+        DispatchQueue.main.async {
+            monthPageSelection = 0
+        }
+    }
 
-        withAnimation(Self.monthSwipeSettle) {
-            dragOffset = exitOffset
+    private func monthStart(offsetFromSelected offset: Int) -> Date {
+        guard offset != 0 else { return monthStart }
+        return calendar.date(byAdding: .month, value: offset, to: monthStart) ?? monthStart
+    }
+
+    private func monthCells(for monthStart: Date) -> [Date?] {
+        guard let dayRange = calendar.range(of: .day, in: .month, for: monthStart) else { return [] }
+        let firstWeekday = calendar.component(.weekday, from: monthStart)
+        let leadingSlots = (firstWeekday - calendar.firstWeekday + 7) % 7
+
+        var cells: [Date?] = Array(repeating: nil, count: leadingSlots)
+        for day in dayRange {
+            if let date = calendar.date(byAdding: .day, value: day - 1, to: monthStart) {
+                cells.append(date)
+            }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-            stepMonth(by: delta)
-            dragOffset = -exitOffset
-            withAnimation(Self.monthSwipeSettle) {
-                dragOffset = 0
+        let totalSlots = Self.calendarRowCount * 7
+        while cells.count < totalSlots {
+            cells.append(nil)
+        }
+
+        return cells
+    }
+
+    private func calendarPage(monthOffset: Int) -> some View {
+        let start = monthStart(offsetFromSelected: monthOffset)
+        let cells = monthCells(for: start)
+
+        return VStack(spacing: Self.calendarRowSpacing) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: Self.calendarRowSpacing) {
+                ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
+                    Text(verbatim: symbol)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(palette.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: Self.calendarHeaderHeight)
+                }
+
+                ForEach(Array(cells.enumerated()), id: \.offset) { _, date in
+                    if let date {
+                        CalendarDayCell(
+                            date: date,
+                            mood: moodStore.mood(for: date),
+                            palette: palette,
+                            isDisabled: isFutureDate(date)
+                        ) { newMood in
+                            if !isFutureDate(date) {
+                                moodStore.setMood(newMood, for: date)
+                            }
+                        }
+                    } else {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.clear)
+                            .frame(height: Self.calendarCellHeight)
+                    }
+                }
             }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(palette.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(palette.border, lineWidth: 1)
+        )
+    }
+
+    private var calendarCarousel: some View {
+        TabView(selection: $monthPageSelection) {
+            calendarPage(monthOffset: -1).tag(-1)
+            calendarPage(monthOffset: 0).tag(0)
+            calendarPage(monthOffset: 1).tag(1)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: Self.calendarPageHeight)
+        .onChange(of: monthPageSelection) { _, _ in
+            commitMonthPageIfNeeded()
         }
     }
 
@@ -941,7 +1017,7 @@ private struct CalendarView: View {
 
                     HStack(spacing: 16) {
                         Button {
-                            swipeToMonth(delta: -1)
+                            animateToMonthPage(delta: -1)
                         } label: {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 15, weight: .semibold))
@@ -962,7 +1038,7 @@ private struct CalendarView: View {
                             .multilineTextAlignment(.center)
 
                         Button {
-                            swipeToMonth(delta: 1)
+                            animateToMonthPage(delta: 1)
                         } label: {
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 15, weight: .semibold))
@@ -978,41 +1054,7 @@ private struct CalendarView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
 
-                    calendarGrid
-                        .offset(x: dragOffset)
-                        .clipped()
-                        .contentShape(Rectangle())
-                        .background(
-                            GeometryReader { geometry in
-                                Color.clear
-                                    .onAppear { calendarWidth = geometry.size.width }
-                                    .onChange(of: geometry.size.width) { _, newWidth in
-                                        calendarWidth = newWidth
-                                    }
-                            }
-                        )
-                        // highPriorityGesture wins deterministically over the tab-swipe
-                        // gesture on the ancestor ContentView, instead of racing it.
-                        .highPriorityGesture(
-                            DragGesture(minimumDistance: 8)
-                                .onChanged { value in
-                                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                                    dragOffset = value.translation.width
-                                }
-                                .onEnded { value in
-                                    let threshold: CGFloat = 50
-                                    let predicted = value.predictedEndTranslation.width
-                                    if value.translation.width < -threshold || predicted < -calendarWidth * 0.3 {
-                                        swipeToMonth(delta: 1)
-                                    } else if value.translation.width > threshold || predicted > calendarWidth * 0.3 {
-                                        swipeToMonth(delta: -1)
-                                    } else {
-                                        withAnimation(Self.monthSwipeSettle) {
-                                            dragOffset = 0
-                                        }
-                                    }
-                                }
-                        )
+                    calendarCarousel
 
                     legendRow
 
@@ -1066,66 +1108,6 @@ private struct CalendarView: View {
         return dayRange.compactMap { day in
             calendar.date(byAdding: .day, value: day - 1, to: monthStart)
         }
-    }
-
-    private var monthCells: [Date?] {
-        guard let dayRange = calendar.range(of: .day, in: .month, for: monthStart) else { return [] }
-        let firstWeekday = calendar.component(.weekday, from: monthStart)
-        let leadingSlots = (firstWeekday - calendar.firstWeekday + 7) % 7
-
-        var cells: [Date?] = Array(repeating: nil, count: leadingSlots)
-        for day in dayRange {
-            if let date = calendar.date(byAdding: .day, value: day - 1, to: monthStart) {
-                cells.append(date)
-            }
-        }
-
-        while cells.count % 7 != 0 {
-            cells.append(nil)
-        }
-
-        return cells
-    }
-
-    private var calendarGrid: some View {
-        VStack(spacing: 10) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
-                ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
-                    Text(verbatim: symbol)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(palette.textSecondary)
-                        .frame(maxWidth: .infinity)
-                }
-
-                ForEach(Array(monthCells.enumerated()), id: \.offset) { _, date in
-                    if let date {
-                        CalendarDayCell(
-                            date: date,
-                            mood: moodStore.mood(for: date),
-                            palette: palette,
-                            isDisabled: isFutureDate(date)
-                        ) { newMood in
-                            if !isFutureDate(date) {
-                                moodStore.setMood(newMood, for: date)
-                            }
-                        }
-                    } else {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.clear)
-                            .frame(height: 42)
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(palette.border, lineWidth: 1)
-        )
     }
 
     private var legendRow: some View {

@@ -180,7 +180,7 @@ private struct AppRootView: View {
             } catch {
                 await MainActor.run {
                     isEmailSigningIn = false
-                    emailAuthError = "couldn't sign in, check your email and password."
+                    emailAuthError = error.localizedDescription
                 }
             }
         }
@@ -203,7 +203,7 @@ private struct AppRootView: View {
             } catch {
                 await MainActor.run {
                     isEmailSigningIn = false
-                    emailAuthError = "couldn't create the account, try a different email or a longer password."
+                    emailAuthError = error.localizedDescription
                 }
             }
         }
@@ -556,6 +556,7 @@ private struct LoginView: View {
 
     @State private var email = ""
     @State private var password = ""
+    @State private var isPasswordVisible = false
     #endif
 
     private let backgroundColor = Color(hex: 0x333333)
@@ -577,6 +578,7 @@ private struct LoginView: View {
             let topSpacing = max(proxy.size.height * 0.12, 72)
             let bottomSpacing = max(proxy.size.height * 0.14, 84)
 
+            ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
                 Spacer(minLength: topSpacing)
 
@@ -640,6 +642,9 @@ private struct LoginView: View {
 
                 Spacer(minLength: bottomSpacing)
             }
+            .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
+            .scrollDismissesKeyboard(.interactively)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(backgroundColor.ignoresSafeArea())
         }
@@ -667,12 +672,34 @@ private struct LoginView: View {
                 .frame(height: 46)
                 .background(emailFieldBackground)
 
-            SecureField("", text: $password, prompt: Text("password").foregroundStyle(.white.opacity(0.4)))
+            ZStack(alignment: .trailing) {
+                Group {
+                    if isPasswordVisible {
+                        TextField("", text: $password, prompt: Text("password").foregroundStyle(.white.opacity(0.4)))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } else {
+                        SecureField("", text: $password, prompt: Text("password").foregroundStyle(.white.opacity(0.4)))
+                    }
+                }
                 .textContentType(.password)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
+                .padding(.trailing, 32)
                 .frame(height: 46)
-                .background(emailFieldBackground)
+
+                Button {
+                    isPasswordVisible.toggle()
+                } label: {
+                    Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(width: 32, height: 46)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 6)
+            }
+            .background(emailFieldBackground)
 
             if let emailAuthError {
                 Text(emailAuthError)
