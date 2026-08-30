@@ -306,7 +306,7 @@ private struct AppRootView: View {
         hasAttemptedEmailRestore = true
 
         Task {
-            let hasPersistedSession = (try? await MoodSyncService.client.auth.session) != nil
+            let hasPersistedSession = await MoodSyncService.hasPersistedSession()
             await MainActor.run {
                 emailCheckDone = true
                 guard hasPersistedSession, !hasAuthenticated else { return }

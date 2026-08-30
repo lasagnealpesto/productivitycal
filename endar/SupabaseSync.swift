@@ -74,6 +74,19 @@ enum MoodSyncService {
         try? await client.auth.signOut()
     }
 
+    /// Whether there's a persisted, still-valid Supabase session right now —
+    /// used to restore login for accounts (email/password) that have no
+    /// native OS-level session-restore of their own, the way Apple/Google
+    /// do. Kept here (rather than exposing `client` itself to endarApp.swift)
+    /// so callers never need to touch Supabase/Auth types directly, which
+    /// requires `import Supabase` wherever it happens — endarApp.swift
+    /// doesn't have that import, and accessing `.auth.session` from there
+    /// broke the Xcode Cloud build ("Property 'auth' is not available due to
+    /// missing import of defining module 'Supabase'").
+    static func hasPersistedSession() async -> Bool {
+        (try? await client.auth.session) != nil
+    }
+
     /// The signed-in account's email, for display in the profile menu. `nil`
     /// if there's no session yet (offline, not signed in) or the provider
     /// didn't share one.
