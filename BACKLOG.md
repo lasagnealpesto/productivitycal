@@ -81,6 +81,16 @@ e row-level-security per account. Lato codice:
   esiste.
 - `endarApp.swift`: dopo login Apple/Google chiama `MoodSyncService.signIn`;
   al logout chiama `MoodSyncService.signOut`.
+- **Login email + password**: aggiunta una sezione "or" sotto Apple/Google
+  in `LoginView` con campi email/password e pulsanti sign in / sign up,
+  collegati a `MoodSyncService.signInWithPassword`/`signUpWithPassword`.
+  Utile sia per chi non vuole usare Apple/Google, sia per i reviewer Apple.
+- **Account demo per App Store Review** (creato direttamente sul database
+  Supabase, non serve fare altro): email `reviewer@productivitycal.app`,
+  password `YouAreMyFavoriteReviewer!1`. Da mettere nel campo "Note per il
+  revisore"/"Sign-In Information" di App Store Connect quando risottometti,
+  così il reviewer può accedere senza un vero account Apple/Google. Non
+  condividerla altrove.
 - **Manca solo**: in Xcode, File → Add Package Dependencies → incolla
   `https://github.com/supabase/supabase-swift` → aggiungi il prodotto
   "Supabase" al target "endar". ~2 minuti, poi build — a differenza del

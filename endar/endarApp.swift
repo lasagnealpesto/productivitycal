@@ -73,6 +73,7 @@ private struct AppRootView: View {
     private enum SessionAuthProvider: String {
         case apple
         case google
+        case email
     }
 
     @State private var showLaunchSplash = true
@@ -85,6 +86,10 @@ private struct AppRootView: View {
     @State private var appleLogoutCoordinator: AppleLogoutCoordinator?
     @AppStorage("auth.apple.user.id.v1") private var storedAppleUserID: String = ""
     @AppStorage("auth.provider.v1") private var authProviderRaw: String = ""
+    #if canImport(Supabase)
+    @State private var isEmailSigningIn = false
+    @State private var emailAuthError: String?
+    #endif
     
     private var isAuthBypassedOnSimulator: Bool {
         #if targetEnvironment(simulator)
@@ -112,6 +117,13 @@ private struct AppRootView: View {
                     onGoogleSignIn: signInWithGoogle,
                     isAppleSigningIn: isAppleSigningIn,
                     isGoogleSigningIn: isGoogleSigningIn
+                    #if canImport(Supabase)
+                    ,
+                    onEmailSignIn: signInWithEmail,
+                    onEmailSignUp: signUpWithEmail,
+                    isEmailSigningIn: isEmailSigningIn,
+                    emailAuthError: emailAuthError
+                    #endif
                 )
                 .transition(.opacity)
                 .allowsHitTesting(!showLaunchSplash)
@@ -141,6 +153,54 @@ private struct AppRootView: View {
         }
         DailyMoodNotificationScheduler.shared.configureIfNeeded()
     }
+
+    #if canImport(Supabase)
+    private func signInWithEmail(email: String, password: String) {
+        guard !isEmailSigningIn else { return }
+        isEmailSigningIn = true
+        emailAuthError = nil
+
+        Task {
+            do {
+                try await MoodSyncService.signInWithPassword(email: email, password: password)
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    authProviderRaw = SessionAuthProvider.email.rawValue
+                    storedAppleUserID = ""
+                    completeLogin()
+                }
+            } catch {
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    emailAuthError = "couldn't sign in, check your email and password."
+                }
+            }
+        }
+    }
+
+    private func signUpWithEmail(email: String, password: String) {
+        guard !isEmailSigningIn else { return }
+        isEmailSigningIn = true
+        emailAuthError = nil
+
+        Task {
+            do {
+                try await MoodSyncService.signUpWithPassword(email: email, password: password)
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    authProviderRaw = SessionAuthProvider.email.rawValue
+                    storedAppleUserID = ""
+                    completeLogin()
+                }
+            } catch {
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    emailAuthError = "couldn't create the account, try a different email or a longer password."
+                }
+            }
+        }
+    }
+    #endif
 
     private func handleLogout() {
         GIDSignIn.sharedInstance.signOut()
@@ -480,6 +540,15 @@ private struct LoginView: View {
     let onGoogleSignIn: () -> Void
     let isAppleSigningIn: Bool
     let isGoogleSigningIn: Bool
+    #if canImport(Supabase)
+    let onEmailSignIn: (String, String) -> Void
+    let onEmailSignUp: (String, String) -> Void
+    let isEmailSigningIn: Bool
+    let emailAuthError: String?
+
+    @State private var email = ""
+    @State private var password = ""
+    #endif
 
     private let backgroundColor = Color(hex: 0x333333)
     private let logoName = "splash-logo"
@@ -549,6 +618,10 @@ private struct LoginView: View {
                     }
                     .disabled(isGoogleSigningIn)
 
+                    #if canImport(Supabase)
+                    emailAuthSection
+                    #endif
+
                     Link("privacy policy", destination: URL(string: "https://lasagnealpesto.github.io/productivitycal/privacy-policy.html")!)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.55))
@@ -563,6 +636,83 @@ private struct LoginView: View {
             .background(backgroundColor.ignoresSafeArea())
         }
     }
+
+    #if canImport(Supabase)
+    private var emailAuthSection: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Rectangle().fill(.white.opacity(0.18)).frame(height: 1)
+                Text("or")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                Rectangle().fill(.white.opacity(0.18)).frame(height: 1)
+            }
+            .padding(.vertical, 4)
+
+            TextField("", text: $email, prompt: Text("email").foregroundStyle(.white.opacity(0.4)))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+                .background(emailFieldBackground)
+
+            SecureField("", text: $password, prompt: Text("password").foregroundStyle(.white.opacity(0.4)))
+                .textContentType(.password)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+                .background(emailFieldBackground)
+
+            if let emailAuthError {
+                Text(emailAuthError)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.red.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 2)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    onEmailSignIn(email, password)
+                } label: {
+                    Text(isEmailSigningIn ? "..." : "sign in")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(NeutralGlassButtonStyle())
+                .background(emailFieldBackground)
+                .disabled(isEmailSigningIn || email.isEmpty || password.isEmpty)
+
+                Button {
+                    onEmailSignUp(email, password)
+                } label: {
+                    Text(isEmailSigningIn ? "..." : "sign up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(NeutralGlassButtonStyle())
+                .background(emailFieldBackground)
+                .disabled(isEmailSigningIn || email.isEmpty || password.isEmpty)
+            }
+            .padding(.top, 2)
+        }
+        .padding(.top, 8)
+    }
+
+    private var emailFieldBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(.white.opacity(0.06))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(.white.opacity(0.2), lineWidth: 1)
+            )
+    }
+    #endif
 }
 
 private struct LiquidGlassSSOButton<Icon: View>: View {

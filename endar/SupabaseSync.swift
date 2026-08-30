@@ -74,6 +74,17 @@ enum MoodSyncService {
         try? await client.auth.signOut()
     }
 
+    /// Plain email + password account, as an alternative to Apple/Google —
+    /// also what an App Store reviewer can use without a real Apple/Google
+    /// account (see BACKLOG.md for the demo account's credentials).
+    static func signInWithPassword(email: String, password: String) async throws {
+        _ = try await client.auth.signIn(email: email, password: password)
+    }
+
+    static func signUpWithPassword(email: String, password: String) async throws {
+        _ = try await client.auth.signUp(email: email, password: password)
+    }
+
     /// Pulls the signed-in user's full remote history, fills any local gaps
     /// with it (local wins on conflicts, see `MoodStore.mergeRemote`), then
     /// pushes the merged result back up so both sides end up equal. Call
