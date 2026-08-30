@@ -59,19 +59,20 @@ base ai build già esistenti su App Store Connect per l'app, quindi non
 dovrebbe mai collidere con la 21 già in review — da verificare comunque al
 primo build reale di questo nuovo workflow.
 
-## 6. Sistemare le animazioni di swipe (calendario + tab)
-Entrambe percepite come macchinose, poco fluide:
-- **Swipe mesi nel calendario**: si "bugga" e slida male — probabilmente il
-  drag live (`dragOffset` + `swipeToMonth(delta:)`) ha timing/curve
-  dell'animazione da rivedere, o casi limite dove il gesto in corso e lo
-  stepper a frecce entrano in conflitto lasciando lo stato inconsistente.
-- **Swipe tra tab** (home/calendar/set): stessa sensazione di
-  macchinosità — la `DragGesture` sul `TabView` va rivista (soglie,
-  velocità, easing) per renderla naturale come uno swipe nativo.
-Da fare: riprovare da zero l'approccio (magari `TabView` con
-`.tabViewStyle(.page)` nativo per le tab, e per il calendario valutare
-`ScrollView` con paging invece di un `DragGesture` custom) invece di
-continuare a patchare i gesture attuali.
+## 6. Animazioni di swipe (calendario + tab) — ✅ RISOLTO rimuovendole del tutto
+Dopo 3 tentativi diversi (drag custom con offset live, `TabView` nativo con
+`.tabViewStyle(.page)` annidato, carousel hand-rolled con `HStack` +
+`highPriorityGesture`) il calendario restava comunque buggato — annidare
+due gesture orizzontali (tab + mesi) non è mai stato affidabile su iOS.
+Su richiesta esplicita, rimossi tutti gli swipe/scroll custom:
+- **Menù sotto**: tornato al `TabView(selection:)` di sistema con
+  `.tabItem` (come all'inizio) — Liquid Glass automatico, nessun codice
+  custom (`CustomTabBar` rimosso).
+- **Calendario**: cambio mese solo tramite le frecce (`stepMonth(by:)`),
+  griglia statica con un semplice cross-fade su `selectedMonth`/
+  `selectedYear` — nessun `DragGesture`, nessun carousel.
+Pushato su `productivitycal1.1`/`testing`, da confermare su
+device/TestFlight che sia fluido e senza i bug precedenti.
 
 ## 7. Rilavorare le immagini della pagina App Store
 Le screenshot attuali su App Store Connect sono da rifare/arricchire:
