@@ -462,12 +462,27 @@ private struct HomeView: View {
     @State private var showConfirmAction = false
     @State private var pendingAccountAction: AccountAction?
     @State private var confirmingMood: Mood?
+    @State private var accountEmail: String?
+    @AppStorage("auth.provider.v1") private var authProviderRaw: String = ""
+
+    private var signInMethodLabel: String? {
+        switch authProviderRaw {
+        case "apple": return "signed in with Apple"
+        case "google": return "signed in with Google"
+        case "email": return "signed in with email"
+        default: return nil
+        }
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack {
-                    AccountActionsMenu(palette: palette) { action in
+                    AccountActionsMenu(
+                        palette: palette,
+                        email: accountEmail,
+                        signInMethod: signInMethodLabel
+                    ) { action in
                         pendingAccountAction = action
                         showConfirmAction = true
                     }
@@ -514,6 +529,11 @@ private struct HomeView: View {
             .padding(.top, 24)
             .padding(.bottom, 24)
             .background(BackgroundView(palette: palette))
+            #if canImport(Supabase)
+            .task {
+                accountEmail = await MoodSyncService.currentUserEmail()
+            }
+            #endif
             .alert(
                 pendingAccountAction?.confirmTitle ?? "confirm",
                 isPresented: $showConfirmAction,
@@ -752,6 +772,11 @@ private struct CalendarView: View {
     @State private var selectedYear: Int
     @State private var selectedMonth: Int
     @State private var isShowingQuickFill = false
+    /// Which edge the grid slides in from on the next month change — set
+    /// right before the month state changes so the `.id(monthStart)` swap
+    /// animates as a directional slide instead of a plain cut. Arrow taps
+    /// only; there is no drag/gesture behind this.
+    @State private var monthTransitionEdge: Edge = .trailing
 
     private let calendar = Calendar.current
 
@@ -793,8 +818,18 @@ private struct CalendarView: View {
             newYear -= 1
         }
 
-        selectedMonth = newMonth
-        selectedYear = newYear
+        withAnimation(.easeInOut(duration: 0.28)) {
+            monthTransitionEdge = delta > 0 ? .trailing : .leading
+            selectedMonth = newMonth
+            selectedYear = newYear
+        }
+    }
+
+    private func jumpToYear(_ year: Int) {
+        withAnimation(.easeInOut(duration: 0.28)) {
+            monthTransitionEdge = year > selectedYear ? .trailing : .leading
+            selectedYear = year
+        }
     }
 
     private var monthCells: [Date?] {
@@ -860,9 +895,10 @@ private struct CalendarView: View {
                 .stroke(palette.border, lineWidth: 1)
         )
         .id(monthStart)
-        .transition(.opacity)
-        .animation(.easeInOut(duration: 0.2), value: selectedMonth)
-        .animation(.easeInOut(duration: 0.2), value: selectedYear)
+        .transition(.asymmetric(
+            insertion: .move(edge: monthTransitionEdge).combined(with: .opacity),
+            removal: .move(edge: monthTransitionEdge == .trailing ? .leading : .trailing).combined(with: .opacity)
+        ))
     }
 
     private var weekdaySymbols: [String] {
@@ -886,7 +922,7 @@ private struct CalendarView: View {
                     Menu {
                         ForEach(yearOptions, id: \.self) { year in
                             Button {
-                                selectedYear = year
+                                jumpToYear(year)
                             } label: {
                                 if year == selectedYear {
                                     Label(String(year), systemImage: "checkmark")
@@ -1162,10 +1198,22 @@ private struct ThemeToggle: View {
 
 private struct AccountActionsMenu: View {
     let palette: AppPalette
+    let email: String?
+    let signInMethod: String?
     let onSelect: (AccountAction) -> Void
 
     var body: some View {
         Menu {
+            if email != nil || signInMethod != nil {
+                Section {
+                    if let email {
+                        Text(email)
+                    }
+                    if let signInMethod {
+                        Text(signInMethod)
+                    }
+                }
+            }
             Button("logout") {
                 onSelect(.logout)
             }

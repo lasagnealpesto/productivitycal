@@ -74,6 +74,14 @@ enum MoodSyncService {
         try? await client.auth.signOut()
     }
 
+    /// The signed-in account's email, for display in the profile menu. `nil`
+    /// if there's no session yet (offline, not signed in) or the provider
+    /// didn't share one.
+    static func currentUserEmail() async -> String? {
+        guard let session = try? await client.auth.session else { return nil }
+        return session.user.email
+    }
+
     /// Plain email + password account, as an alternative to Apple/Google —
     /// also what an App Store reviewer can use without a real Apple/Google
     /// account (see BACKLOG.md for the demo account's credentials).
