@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import WidgetKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -431,6 +432,17 @@ private struct AppRootView: View {
         #if canImport(Supabase)
         Task { await MoodSyncService.signOut() }
         #endif
+
+        // Mood history belongs to whichever account is signed in. Without
+        // this, logging into a different account (the reviewer demo
+        // account, say) kept showing whatever the previous account had
+        // logged locally, and the next sync would even push that leftover
+        // data up into the newly signed-in account's own history.
+        if let sharedSuite = UserDefaults(suiteName: SharedStorage.appGroupID) {
+            sharedSuite.removeObject(forKey: "moodStore.v1")
+            sharedSuite.synchronize()
+        }
+        WidgetCenter.shared.reloadTimelines(ofKind: "EndarStreakWidget")
 
         if resetAllLocalData {
             if let bundleID = Bundle.main.bundleIdentifier {
