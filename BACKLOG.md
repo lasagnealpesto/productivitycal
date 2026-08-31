@@ -175,3 +175,15 @@ cancellarlo io: GitHub rifiuta il push di cancellazione con HTTP 403
 (stessa protezione già vista sul branch dell'harness). Da fare tu una
 volta sola: GitHub → repo → Branches → cestino su `testing` (oppure da
 Xcode). Da parte mia continuo a pushare solo su `productivitycal1.1`.
+
+## 11. Bug: cambiare account non svuotava il calendario locale — ✅ FATTO
+Scoperto testando l'account reviewer: dopo il logout dal proprio account
+e il login come reviewer, il calendario mostrava ancora tutti i propri
+dati. Causa: il logout normale resettava solo lo stato di login, mai la
+cache locale dei mood (condivisa via App Group, non legata a nessun
+account). La sync automatica al login successivo caricava quella cache
+"sporca" anche sul nuovo account: è successo davvero, circa 240 giorni
+dello storico personale erano finiti nell'account reviewer condiviso.
+Ripulito a mano il database Supabase (righe cancellate) e corretto il
+codice: ora ogni logout svuota anche la cache locale dei mood, cosi' il
+prossimo account che entra riparte pulito.
