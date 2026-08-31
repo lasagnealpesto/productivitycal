@@ -125,7 +125,10 @@ e row-level-security per account. Lato codice:
   Utile sia per chi non vuole usare Apple/Google, sia per i reviewer Apple.
 - **Account demo per App Store Review** (creato direttamente sul database
   Supabase, non serve fare altro): email `reviewer@productivitycal.app`,
-  password `YouAreMyFavoriteReviewer!1`. Da mettere nel campo "Note per il
+  password `ReviewMyApp2026!` (cambiata dalla versione precedente,
+  "YouAreMyFavoriteReviewer!1", perche' la parola "favorite/favourite" ha
+  causato piu' di un errore di battitura per l'ambiguita' inglese
+  americano/britannico durante i test). Da mettere nel campo "Note per il
   revisore"/"Sign-In Information" di App Store Connect quando risottometti,
   così il reviewer può accedere senza un vero account Apple/Google. Non
   condividerla altrove.
