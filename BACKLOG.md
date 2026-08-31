@@ -32,23 +32,23 @@ del link/step di import è stato rimosso da `ContentView.swift`. Se in
 futuro si vuole ritentare la riduzione degli step, l'idea e il link
 iCloud della shortcut restano validi, andrebbero solo re-implementati.
 
-## 4. Icona dell'app — ✅ decisa e generata, manca solo il collegamento in Xcode
+## 4. Icona dell'app — ✅ FATTO, collegata davvero
 L'icona precedente (freccia + scintilla) era un placeholder ereditato dal
 progetto originale, mai una scelta consapevole. Decisa la direzione "the
-grid": una versione semplificata della griglia dell'anno (lo stesso
-elemento visivo già presente sul wallpaper), la più riconoscibile e
-distintiva tra le opzioni valutate. Asset generato a piena risoluzione
-(1024x1024, PNG opaco, verificato leggibile anche a dimensioni piccole)
-e già copiato nel repo in
-`endar/Icon-test.icon/Assets/grid-icon-1024.png`.
+grid": una griglia 3x3 semplificata (poche celle grandi, non i 36 quadretti
+del primo tentativo, giudicati troppo "affollati"), con gli stessi colori
+dei mood dell'app più l'accento arancio per il giorno corrente. Asset
+generato a piena risoluzione (1024x1024, PNG opaco), verificato leggibile
+anche a dimensioni piccole (40px).
 
-Non ancora collegata: il progetto usa Icon Composer di Xcode 26 (il file
-`Icon-test.icon`), che si aspetta un livello "template" ricolorabile, non
-un'immagine piatta a colori fissi come questa. Va aperta in Xcode,
-sostituito il livello immagine con questo file, e disattivata la
-colorazione automatica in modo che mantenga i suoi colori reali in ogni
-aspetto (chiaro/scuro/tinted). Operazione da 2 minuti nell'interfaccia di
-Icon Composer, dove si vede subito il risultato prima di salvare.
+Collegata cambiando l'icona da Icon Composer (`Icon-test.icon`, pensato
+per un livello "template" ricolorabile, non adatto a un'immagine piatta a
+colori fissi) a un asset catalog classico:
+`endar/Assets.xcassets/AppIcon.appiconset/AppIcon.png`, con
+`ASSETCATALOG_COMPILER_APPICON_NAME` in `project.pbxproj` aggiornato da
+"Icon-test" ad "AppIcon" (sia Debug che Release). Il file `Icon-test.icon`
+resta nel repo ma non è più referenziato da nessuna build setting: si può
+cancellare quando si vuole, non fa più nulla.
 
 ## 5. Verificare se Xcode Cloud basta da solo per le prossime submission
 La prima pubblicazione ha richiesto un archivio manuale da Xcode
