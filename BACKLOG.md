@@ -32,11 +32,23 @@ del link/step di import è stato rimosso da `ContentView.swift`. Se in
 futuro si vuole ritentare la riduzione degli step, l'idea e il link
 iCloud della shortcut restano validi, andrebbero solo re-implementati.
 
-## 4. Icona dell'app
-L'icona attuale (freccia + scintilla) viene dal progetto originale
-ricevuto a inizio sessione — probabilmente un placeholder, mai deciso
-consapevolmente. Da valutare: tenerla così o sostituirla con un logo
-vero prima del prossimo aggiornamento importante.
+## 4. Icona dell'app — ✅ decisa e generata, manca solo il collegamento in Xcode
+L'icona precedente (freccia + scintilla) era un placeholder ereditato dal
+progetto originale, mai una scelta consapevole. Decisa la direzione "the
+grid": una versione semplificata della griglia dell'anno (lo stesso
+elemento visivo già presente sul wallpaper), la più riconoscibile e
+distintiva tra le opzioni valutate. Asset generato a piena risoluzione
+(1024x1024, PNG opaco, verificato leggibile anche a dimensioni piccole)
+e già copiato nel repo in
+`endar/Icon-test.icon/Assets/grid-icon-1024.png`.
+
+Non ancora collegata: il progetto usa Icon Composer di Xcode 26 (il file
+`Icon-test.icon`), che si aspetta un livello "template" ricolorabile, non
+un'immagine piatta a colori fissi come questa. Va aperta in Xcode,
+sostituito il livello immagine con questo file, e disattivata la
+colorazione automatica in modo che mantenga i suoi colori reali in ogni
+aspetto (chiaro/scuro/tinted). Operazione da 2 minuti nell'interfaccia di
+Icon Composer, dove si vede subito il risultato prima di salvare.
 
 ## 5. Verificare se Xcode Cloud basta da solo per le prossime submission
 La prima pubblicazione ha richiesto un archivio manuale da Xcode
@@ -79,10 +91,18 @@ Le screenshot attuali su App Store Connect sono da rifare/arricchire:
 1. **Screenshot dell'app**: aggiornare con le schermate reali post-redesign
    (tutorial nuovo, calendario, home) invece delle prime caricate.
 2. **Screenshot "vision"**: 1-2 immagini con un concetto/claim forte invece
-   che solo UI nuda, es. "Tieni la tua vita sotto controllo" — da rifinire
+   che solo UI nuda, es. "Tieni la tua vita sotto controllo", da rifinire
    il copy esatto e lo stile grafico (testo overlay su mockup del telefono).
-3. **Screenshot della notifica**: mostrare la notifica giornaliera (18:00)
+3. **Screenshot della notifica**: mostrare la notifica giornaliera (19:30)
    com'è realmente su schermo, per comunicare il reminder automatico.
+
+**Testi (non le immagini) — ✅ FATTO**: partendo dai campi reali già live
+per la 1.0 (promotional text, descrizione, parole chiave, note per il
+team di revisione), riscritti in tono brand e aggiornati per la 1.1 (la
+frase "i dati non lasciano mai il telefono" non è più vera ora che
+esiste la sync, sostituita con un claim di privacy corretto). Pacchetto
+completo, con conteggio caratteri verificato contro i limiti reali di
+Apple, consegnato come documento a parte (recap release 1.1).
 
 ## 8. Login + backend vero, dati legati al profilo — ✅ FATTO, da verificare su device
 Backend Supabase creato (progetto "productivitycal", ref `nxcdjnmiulliwpwnbbsx`,
