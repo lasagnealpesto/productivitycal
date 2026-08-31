@@ -928,6 +928,7 @@ private struct CalendarView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                     HStack {
                         Spacer()
@@ -1042,12 +1043,11 @@ private struct CalendarView: View {
                         }
                         .presentationCompactAdaptation(.popover)
                     }
-
-                    Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
             .padding(.top, 24)
             .padding(.bottom, 24)
+            }
             .background(BackgroundView(palette: palette))
         }
     }
