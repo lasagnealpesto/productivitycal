@@ -1437,6 +1437,7 @@ private struct SetView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     Spacer()
@@ -1444,14 +1445,14 @@ private struct SetView: View {
                     ThemeToggle(themeRaw: $themeRaw, palette: palette)
                 }
 
+                wallpaperPreview
                 wallpaperModelSelection
                 wallpaperControls
-
-                Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
             .padding(.top, 24)
             .padding(.bottom, 24)
+            }
             .background(BackgroundView(palette: palette))
         }
         .onAppear {
@@ -1504,6 +1505,42 @@ private struct SetView: View {
         } catch {
             shareURL = nil
             shareImage = nil
+        }
+    }
+
+    @ViewBuilder
+    private var wallpaperPreview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("preview")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(palette.textSecondary)
+
+            HStack {
+                Spacer(minLength: 0)
+
+                Group {
+                    if let shareImage {
+                        Image(uiImage: shareImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(height: 320)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(palette.border, lineWidth: 1)
+                )
+
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(palette.surface)
+            )
         }
     }
 
