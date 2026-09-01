@@ -77,7 +77,6 @@ private struct AppRootView: View {
         case email
     }
 
-    @State private var showLaunchSplash = true
     @State private var hasAuthenticated = false
     @State private var hasAttemptedGoogleRestore = false
     @State private var hasAttemptedAppleRestore = false
@@ -88,8 +87,8 @@ private struct AppRootView: View {
     @AppStorage("auth.apple.user.id.v1") private var storedAppleUserID: String = ""
     @AppStorage("auth.provider.v1") private var authProviderRaw: String = ""
     // Each restore path flips its own flag when it's done (success or not),
-    // so the splash never hands off to LoginView/ContentView before we
-    // actually know which one is correct — that race is what used to flash
+    // so the app never hands off to LoginView/ContentView before we
+    // actually know which one is correct. That race is what used to flash
     // the login screen for a frame on an already-logged-in launch.
     @State private var googleCheckDone = false
     @State private var appleCheckDone = false
@@ -123,7 +122,15 @@ private struct AppRootView: View {
 
     var body: some View {
         ZStack {
-            if isSessionAuthenticated {
+            // No splash screen: while the Apple/Google/email restore checks
+            // are still in flight (almost always well under a second), show
+            // a plain, unbranded background instead of guessing which
+            // screen to reveal first. That guess was the whole reason the
+            // login screen used to flash for a frame on an already-signed-in
+            // launch.
+            if !isSessionCheckComplete {
+                Color.black.ignoresSafeArea()
+            } else if isSessionAuthenticated {
                 ContentView(
                     onLogout: handleLogout,
                     onDeleteAccount: handleDeleteAccount
@@ -142,7 +149,6 @@ private struct AppRootView: View {
                     emailAuthError: emailAuthError
                 )
                 .transition(.opacity)
-                .allowsHitTesting(!showLaunchSplash)
                 #else
                 LoginView(
                     onAppleSignIn: signInWithApple,
@@ -151,25 +157,10 @@ private struct AppRootView: View {
                     isGoogleSigningIn: isGoogleSigningIn
                 )
                 .transition(.opacity)
-                .allowsHitTesting(!showLaunchSplash)
                 #endif
             }
-
-            if showLaunchSplash {
-                // A plain Bool parameter would freeze at whatever value was
-                // true when .task first launched inside LaunchSplashView (a
-                // value-type struct); a Binding reads the live value from
-                // AppRootView's own @State on every check, which is what
-                // lets the splash actually wait for the restore to finish.
-                LaunchSplashView(isSessionCheckComplete: Binding(get: { isSessionCheckComplete }, set: { _ in })) {
-                    withAnimation(.easeInOut(duration: 0.24)) {
-                        showLaunchSplash = false
-                    }
-                }
-                .transition(.opacity)
-                .zIndex(1)
-            }
         }
+        .animation(.easeInOut(duration: 0.2), value: isSessionCheckComplete)
         .animation(.easeInOut(duration: 0.28), value: isSessionAuthenticated)
         .onAppear {
             DailyMoodNotificationScheduler.shared.configureIfNeeded()
@@ -225,7 +216,7 @@ private struct AppRootView: View {
                     isEmailSigningIn = false
                     guard hasSession else {
                         // The project's auth settings require confirming the
-                        // email first — there's no session yet, so signing
+                        // email first, so there's no session yet: signing
                         // the device in now would show the app with nothing
                         // actually synced.
                         emailAuthError = "check your inbox to confirm your email, then sign in."
@@ -300,7 +291,7 @@ private struct AppRootView: View {
     /// Apple/Google restore their own native session and separately drive
     /// `hasAuthenticated`; a plain email account has no such native restore,
     /// so without this it had to log in again on every single launch. Any
-    /// persisted, still-valid Supabase session — from any provider — is
+    /// persisted, still-valid Supabase session, from any provider, is
     /// proof enough to skip the login screen.
     private func restorePreviousEmailSessionIfNeeded() {
         guard !hasAttemptedEmailRestore else { return }
@@ -476,158 +467,6 @@ private struct AppRootView: View {
             .flatMap(\.windows)
             .first(where: \.isKeyWindow)?
             .rootViewController
-    }
-}
-
-private struct LaunchSplashView: View {
-    @Binding var isSessionCheckComplete: Bool
-    let onFinished: () -> Void
-
-    @State private var hasStarted = false
-    @State private var containerOpacity: CGFloat = 1.0
-    @State private var logoBaseOpacity: CGFloat = 0.0
-    @State private var logoScale: CGFloat = 0.985
-    @State private var logoGlow: CGFloat = 0.0
-    @State private var logoBloomOpacity: CGFloat = 0.0
-    @State private var logoBloomBlur: CGFloat = 6.0
-    @State private var logoBloomScale: CGFloat = 1.0
-    @State private var logoSpecularOpacity: CGFloat = 0.0
-
-    private let logoName = "splash-logo"
-
-    private var customLogoImage: UIImage? {
-        if let named = UIImage(named: logoName) {
-            return named
-        }
-        guard let path = Bundle.main.path(forResource: logoName, ofType: "png") else {
-            return nil
-        }
-        return UIImage(contentsOfFile: path)
-    }
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.black
-                    .ignoresSafeArea()
-
-                splashLogo(maxWidth: min(proxy.size.width * 0.44, 220))
-                    .opacity(logoBloomOpacity)
-                    .scaleEffect(logoBloomScale)
-                    .blur(radius: logoBloomBlur)
-                    .blendMode(.screen)
-
-                splashLogo(maxWidth: min(proxy.size.width * 0.44, 220))
-                    .opacity(logoSpecularOpacity)
-                    .scaleEffect(logoScale * 1.004)
-                    .blur(radius: 0.8)
-                    .blendMode(.screen)
-
-                splashLogo(maxWidth: min(proxy.size.width * 0.44, 220))
-                    .opacity(logoBaseOpacity)
-                    .scaleEffect(logoScale)
-                    .shadow(color: .white.opacity(logoGlow), radius: 18, x: 0, y: 0)
-            }
-            .opacity(containerOpacity)
-            .task {
-                await runAnimationIfNeeded()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func splashLogo(maxWidth: CGFloat) -> some View {
-        if let image = customLogoImage {
-            Image(uiImage: image)
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .foregroundColor(.white)
-                .frame(maxWidth: maxWidth)
-        } else {
-            Text("productivitycal")
-                .font(.system(size: 54, weight: .medium, design: .rounded))
-                .foregroundStyle(.white)
-                .tracking(1.2)
-        }
-    }
-
-    /// Shown once in full the first time the app is opened each day; every
-    /// later same-day launch gets a quick fade instead so a multiple-times-
-    /// a-day habit app doesn't pay a ~2s animation tax on every open.
-    private static let lastShownDayKey = "launchSplash.lastShownDay.v1"
-
-    @MainActor
-    private func runAnimationIfNeeded() async {
-        guard !hasStarted else { return }
-        hasStarted = true
-
-        let defaults = UserDefaults.standard
-        let today = Calendar.current.startOfDay(for: Date())
-        let alreadyShownToday: Bool = {
-            guard let stored = defaults.object(forKey: Self.lastShownDayKey) as? Date else { return false }
-            return Calendar.current.isDate(stored, inSameDayAs: today)
-        }()
-
-        guard !alreadyShownToday else {
-            withAnimation(.easeOut(duration: 0.2)) {
-                logoBaseOpacity = 1.0
-                logoScale = 1.0
-            }
-            try? await Task.sleep(nanoseconds: 220_000_000)
-            withAnimation(.easeInOut(duration: 0.18)) {
-                containerOpacity = 0.0
-            }
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            await waitForSessionCheck()
-            onFinished()
-            return
-        }
-
-        defaults.set(today, forKey: Self.lastShownDayKey)
-
-        // 1) Pure black hold
-        try? await Task.sleep(nanoseconds: 150_000_000)
-
-        // 2) Logo emerges from black
-        withAnimation(.easeOut(duration: 0.55)) {
-            logoBaseOpacity = 1.0
-            logoScale = 1.0
-        }
-
-        // 3) Start glow earlier while logo fade-in is still progressing
-        try? await Task.sleep(nanoseconds: 380_000_000)
-        withAnimation(.easeInOut(duration: 0.5)) {
-            logoGlow = 0.34
-            logoBloomOpacity = 0.64
-            logoBloomBlur = 14.0
-            logoBloomScale = 1.04
-            logoSpecularOpacity = 0.24
-        }
-
-        try? await Task.sleep(nanoseconds: 380_000_000)
-
-        // 4) Dissolve to home
-        withAnimation(.easeInOut(duration: 0.22)) {
-            containerOpacity = 0.0
-        }
-
-        try? await Task.sleep(nanoseconds: 220_000_000)
-        await waitForSessionCheck()
-        onFinished()
-    }
-
-    /// Blocks the splash's hand-off until the Apple/Google/email restore
-    /// checks in AppRootView have all reported in — otherwise the fixed
-    /// animation timer above could finish first and reveal LoginView for a
-    /// frame before the real "already logged in" answer comes back. Capped
-    /// so a stuck check (no network, a hung SDK callback) can't strand the
-    /// splash on screen forever.
-    private func waitForSessionCheck() async {
-        let deadline = Date().addingTimeInterval(2.5)
-        while !isSessionCheckComplete && Date() < deadline {
-            try? await Task.sleep(nanoseconds: 30_000_000)
-        }
     }
 }
 
