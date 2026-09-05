@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import WidgetKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -57,6 +58,12 @@ struct endarApp: App {
         WindowGroup {
             AppRootView()
                 .onOpenURL { url in
+                    if url.scheme == "productivitycal" {
+                        if url.host == "log" {
+                            NotificationCenter.default.post(name: .productivitycalOpenLog, object: nil)
+                        }
+                        return
+                    }
                     GIDSignIn.sharedInstance.handle(url)
                 }
         }
@@ -67,9 +74,9 @@ private struct AppRootView: View {
     private enum SessionAuthProvider: String {
         case apple
         case google
+        case email
     }
 
-    @State private var showLaunchSplash = true
     @State private var hasAuthenticated = false
     @State private var hasAttemptedGoogleRestore = false
     @State private var hasAttemptedAppleRestore = false
@@ -79,7 +86,19 @@ private struct AppRootView: View {
     @State private var appleLogoutCoordinator: AppleLogoutCoordinator?
     @AppStorage("auth.apple.user.id.v1") private var storedAppleUserID: String = ""
     @AppStorage("auth.provider.v1") private var authProviderRaw: String = ""
-    
+    // Each restore path flips its own flag when it's done (success or not),
+    // so the app never hands off to LoginView/ContentView before we
+    // actually know which one is correct. That race is what used to flash
+    // the login screen for a frame on an already-logged-in launch.
+    @State private var googleCheckDone = false
+    @State private var appleCheckDone = false
+    #if canImport(Supabase)
+    @State private var isEmailSigningIn = false
+    @State private var emailAuthError: String?
+    @State private var hasAttemptedEmailRestore = false
+    @State private var emailCheckDone = false
+    #endif
+
     private var isAuthBypassedOnSimulator: Bool {
         #if targetEnvironment(simulator)
         true
@@ -92,15 +111,45 @@ private struct AppRootView: View {
         hasAuthenticated || isAuthBypassedOnSimulator
     }
 
+    private var isSessionCheckComplete: Bool {
+        guard !isAuthBypassedOnSimulator else { return true }
+        #if canImport(Supabase)
+        return googleCheckDone && appleCheckDone && emailCheckDone
+        #else
+        return googleCheckDone && appleCheckDone
+        #endif
+    }
+
     var body: some View {
         ZStack {
-            if isSessionAuthenticated {
+            // No splash screen: while the Apple/Google/email restore checks
+            // are still in flight (almost always well under a second), show
+            // a plain, unbranded background instead of guessing which
+            // screen to reveal first. That guess was the whole reason the
+            // login screen used to flash for a frame on an already-signed-in
+            // launch.
+            if !isSessionCheckComplete {
+                Color.black.ignoresSafeArea()
+            } else if isSessionAuthenticated {
                 ContentView(
                     onLogout: handleLogout,
                     onDeleteAccount: handleDeleteAccount
                 )
                     .transition(.opacity)
             } else {
+                #if canImport(Supabase)
+                LoginView(
+                    onAppleSignIn: signInWithApple,
+                    onGoogleSignIn: signInWithGoogle,
+                    isAppleSigningIn: isAppleSigningIn,
+                    isGoogleSigningIn: isGoogleSigningIn,
+                    onEmailSignIn: signInWithEmail,
+                    onEmailSignUp: signUpWithEmail,
+                    isEmailSigningIn: isEmailSigningIn,
+                    emailAuthError: emailAuthError
+                )
+                .transition(.opacity)
+                #else
                 LoginView(
                     onAppleSignIn: signInWithApple,
                     onGoogleSignIn: signInWithGoogle,
@@ -108,24 +157,19 @@ private struct AppRootView: View {
                     isGoogleSigningIn: isGoogleSigningIn
                 )
                 .transition(.opacity)
-                .allowsHitTesting(!showLaunchSplash)
-            }
-
-            if showLaunchSplash {
-                LaunchSplashView {
-                    withAnimation(.easeInOut(duration: 0.24)) {
-                        showLaunchSplash = false
-                    }
-                }
-                .transition(.opacity)
-                .zIndex(1)
+                #endif
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: isSessionCheckComplete)
         .animation(.easeInOut(duration: 0.28), value: isSessionAuthenticated)
         .onAppear {
+            DailyMoodNotificationScheduler.shared.configureIfNeeded()
             guard !isAuthBypassedOnSimulator else { return }
             restorePreviousGoogleSessionIfNeeded()
             restorePreviousAppleSessionIfNeeded()
+            #if canImport(Supabase)
+            restorePreviousEmailSessionIfNeeded()
+            #endif
         }
     }
 
@@ -135,6 +179,62 @@ private struct AppRootView: View {
         }
         DailyMoodNotificationScheduler.shared.configureIfNeeded()
     }
+
+    #if canImport(Supabase)
+    private func signInWithEmail(email: String, password: String) {
+        guard !isEmailSigningIn else { return }
+        isEmailSigningIn = true
+        emailAuthError = nil
+
+        Task {
+            do {
+                try await MoodSyncService.signInWithPassword(email: email, password: password)
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    authProviderRaw = SessionAuthProvider.email.rawValue
+                    storedAppleUserID = ""
+                    completeLogin()
+                }
+            } catch {
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    emailAuthError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func signUpWithEmail(email: String, password: String) {
+        guard !isEmailSigningIn else { return }
+        isEmailSigningIn = true
+        emailAuthError = nil
+
+        Task {
+            do {
+                let hasSession = try await MoodSyncService.signUpWithPassword(email: email, password: password)
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    guard hasSession else {
+                        // The project's auth settings require confirming the
+                        // email first, so there's no session yet: signing
+                        // the device in now would show the app with nothing
+                        // actually synced.
+                        emailAuthError = "check your inbox to confirm your email, then sign in."
+                        return
+                    }
+                    authProviderRaw = SessionAuthProvider.email.rawValue
+                    storedAppleUserID = ""
+                    completeLogin()
+                }
+            } catch {
+                await MainActor.run {
+                    isEmailSigningIn = false
+                    emailAuthError = error.localizedDescription
+                }
+            }
+        }
+    }
+    #endif
 
     private func handleLogout() {
         GIDSignIn.sharedInstance.signOut()
@@ -161,6 +261,7 @@ private struct AppRootView: View {
         hasAttemptedGoogleRestore = true
 
         GIDSignIn.sharedInstance.restorePreviousSignIn { user, _ in
+            defer { googleCheckDone = true }
             guard user != nil else { return }
             authProviderRaw = SessionAuthProvider.google.rawValue
             storedAppleUserID = ""
@@ -171,16 +272,41 @@ private struct AppRootView: View {
     private func restorePreviousAppleSessionIfNeeded() {
         guard !hasAttemptedAppleRestore else { return }
         hasAttemptedAppleRestore = true
-        guard !storedAppleUserID.isEmpty else { return }
+        guard !storedAppleUserID.isEmpty else {
+            appleCheckDone = true
+            return
+        }
 
         ASAuthorizationAppleIDProvider().getCredentialState(forUserID: storedAppleUserID) { state, _ in
-            guard state == .authorized else { return }
             DispatchQueue.main.async {
+                defer { appleCheckDone = true }
+                guard state == .authorized else { return }
                 authProviderRaw = SessionAuthProvider.apple.rawValue
                 completeLogin()
             }
         }
     }
+
+    #if canImport(Supabase)
+    /// Apple/Google restore their own native session and separately drive
+    /// `hasAuthenticated`; a plain email account has no such native restore,
+    /// so without this it had to log in again on every single launch. Any
+    /// persisted, still-valid Supabase session, from any provider, is
+    /// proof enough to skip the login screen.
+    private func restorePreviousEmailSessionIfNeeded() {
+        guard !hasAttemptedEmailRestore else { return }
+        hasAttemptedEmailRestore = true
+
+        Task {
+            let hasPersistedSession = await MoodSyncService.hasPersistedSession()
+            await MainActor.run {
+                emailCheckDone = true
+                guard hasPersistedSession, !hasAuthenticated else { return }
+                completeLogin()
+            }
+        }
+    }
+    #endif
 
     private func signInWithApple() {
         guard !isAuthBypassedOnSimulator else {
@@ -205,6 +331,11 @@ private struct AppRootView: View {
                     storedAppleUserID = credential.user
                     authProviderRaw = SessionAuthProvider.apple.rawValue
                     GIDSignIn.sharedInstance.signOut()
+                    #if canImport(Supabase)
+                    if let tokenData = credential.identityToken, let idToken = String(data: tokenData, encoding: .utf8) {
+                        Task { await MoodSyncService.signIn(idToken: idToken, provider: .apple) }
+                    }
+                    #endif
                     completeLogin()
                 case .failure:
                     break
@@ -230,9 +361,14 @@ private struct AppRootView: View {
         GIDSignIn.sharedInstance.configuration = configuration
         GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { result, _ in
             isGoogleSigningIn = false
-            guard result != nil else { return }
+            guard let result else { return }
             authProviderRaw = SessionAuthProvider.google.rawValue
             storedAppleUserID = ""
+            #if canImport(Supabase)
+            if let idToken = result.user.idToken?.tokenString {
+                Task { await MoodSyncService.signIn(idToken: idToken, provider: .google) }
+            }
+            #endif
             completeLogin()
         }
     }
@@ -284,6 +420,21 @@ private struct AppRootView: View {
         isAppleSigningIn = false
         isGoogleSigningIn = false
 
+        #if canImport(Supabase)
+        Task { await MoodSyncService.signOut() }
+        #endif
+
+        // Mood history belongs to whichever account is signed in. Without
+        // this, logging into a different account (the reviewer demo
+        // account, say) kept showing whatever the previous account had
+        // logged locally, and the next sync would even push that leftover
+        // data up into the newly signed-in account's own history.
+        if let sharedSuite = UserDefaults(suiteName: SharedStorage.appGroupID) {
+            sharedSuite.removeObject(forKey: "moodStore.v1")
+            sharedSuite.synchronize()
+        }
+        WidgetCenter.shared.reloadTimelines(ofKind: "EndarStreakWidget")
+
         if resetAllLocalData {
             if let bundleID = Bundle.main.bundleIdentifier {
                 UserDefaults.standard.removePersistentDomain(forName: bundleID)
@@ -319,22 +470,26 @@ private struct AppRootView: View {
     }
 }
 
-private struct LaunchSplashView: View {
-    let onFinished: () -> Void
+private struct LoginView: View {
+    let onAppleSignIn: () -> Void
+    let onGoogleSignIn: () -> Void
+    let isAppleSigningIn: Bool
+    let isGoogleSigningIn: Bool
+    #if canImport(Supabase)
+    let onEmailSignIn: (String, String) -> Void
+    let onEmailSignUp: (String, String) -> Void
+    let isEmailSigningIn: Bool
+    let emailAuthError: String?
 
-    @State private var hasStarted = false
-    @State private var containerOpacity: CGFloat = 1.0
-    @State private var logoBaseOpacity: CGFloat = 0.0
-    @State private var logoScale: CGFloat = 0.985
-    @State private var logoGlow: CGFloat = 0.0
-    @State private var logoBloomOpacity: CGFloat = 0.0
-    @State private var logoBloomBlur: CGFloat = 6.0
-    @State private var logoBloomScale: CGFloat = 1.0
-    @State private var logoSpecularOpacity: CGFloat = 0.0
+    @State private var email = ""
+    @State private var password = ""
+    @State private var isPasswordVisible = false
+    #endif
 
+    private let backgroundColor = Color(hex: 0x333333)
     private let logoName = "splash-logo"
 
-    private var customLogoImage: UIImage? {
+    private var brandLogoImage: UIImage? {
         if let named = UIImage(named: logoName) {
             return named
         }
@@ -346,103 +501,39 @@ private struct LaunchSplashView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
-                Color.black
-                    .ignoresSafeArea()
-
-                splashLogo(maxWidth: min(proxy.size.width * 0.44, 220))
-                    .opacity(logoBloomOpacity)
-                    .scaleEffect(logoBloomScale)
-                    .blur(radius: logoBloomBlur)
-                    .blendMode(.screen)
-
-                splashLogo(maxWidth: min(proxy.size.width * 0.44, 220))
-                    .opacity(logoSpecularOpacity)
-                    .scaleEffect(logoScale * 1.004)
-                    .blur(radius: 0.8)
-                    .blendMode(.screen)
-
-                splashLogo(maxWidth: min(proxy.size.width * 0.44, 220))
-                    .opacity(logoBaseOpacity)
-                    .scaleEffect(logoScale)
-                    .shadow(color: .white.opacity(logoGlow), radius: 18, x: 0, y: 0)
-            }
-            .opacity(containerOpacity)
-            .task {
-                await runAnimationIfNeeded()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func splashLogo(maxWidth: CGFloat) -> some View {
-        if let image = customLogoImage {
-            Image(uiImage: image)
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .foregroundColor(.white)
-                .frame(maxWidth: maxWidth)
-        } else {
-            Text("productivitycal")
-                .font(.system(size: 54, weight: .medium, design: .rounded))
-                .foregroundStyle(.white)
-                .tracking(1.2)
-        }
-    }
-
-    @MainActor
-    private func runAnimationIfNeeded() async {
-        guard !hasStarted else { return }
-        hasStarted = true
-
-        // 1) Pure black hold
-        try? await Task.sleep(nanoseconds: 260_000_000)
-
-        // 2) Logo emerges from black (opacity 0 -> 1 in ~1s)
-        withAnimation(.easeOut(duration: 1.0)) {
-            logoBaseOpacity = 1.0
-            logoScale = 1.0
-        }
-
-        // 3) Start glow earlier while logo fade-in is still progressing
-        try? await Task.sleep(nanoseconds: 700_000_000)
-        withAnimation(.easeInOut(duration: 0.90)) {
-            logoGlow = 0.34
-            logoBloomOpacity = 0.64
-            logoBloomBlur = 14.0
-            logoBloomScale = 1.04
-            logoSpecularOpacity = 0.24
-        }
-
-        try? await Task.sleep(nanoseconds: 700_000_000)
-
-        // 4) Dissolve to home
-        withAnimation(.easeInOut(duration: 0.28)) {
-            containerOpacity = 0.0
-        }
-
-        try? await Task.sleep(nanoseconds: 280_000_000)
-        onFinished()
-    }
-}
-
-private struct LoginView: View {
-    let onAppleSignIn: () -> Void
-    let onGoogleSignIn: () -> Void
-    let isAppleSigningIn: Bool
-    let isGoogleSigningIn: Bool
-
-    private let backgroundColor = Color(hex: 0x333333)
-
-    var body: some View {
-        GeometryReader { proxy in
             let maxContentWidth = min(proxy.size.width - 32, 440)
-            let topSpacing = max(proxy.size.height * 0.18, 110)
+            let topSpacing = max(proxy.size.height * 0.12, 72)
             let bottomSpacing = max(proxy.size.height * 0.14, 84)
 
+            ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
                 Spacer(minLength: topSpacing)
+
+                VStack(spacing: 12) {
+                    Group {
+                        if let brandLogoImage {
+                            Image(uiImage: brandLogoImage)
+                                .renderingMode(.template)
+                                .resizable()
+                                .scaledToFit()
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                        } else {
+                            Text("productivitycal")
+                                .font(.system(size: 28, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white)
+                                .tracking(0.6)
+                        }
+                    }
+
+                    Text("your days, tracked. your life, under control.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: maxContentWidth)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 36)
 
                 VStack(spacing: 14) {
                     LiquidGlassSSOButton(
@@ -464,6 +555,10 @@ private struct LoginView: View {
                     }
                     .disabled(isGoogleSigningIn)
 
+                    #if canImport(Supabase)
+                    emailAuthSection
+                    #endif
+
                     Link("privacy policy", destination: URL(string: "https://lasagnealpesto.github.io/productivitycal/privacy-policy.html")!)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.55))
@@ -474,10 +569,112 @@ private struct LoginView: View {
 
                 Spacer(minLength: bottomSpacing)
             }
+            .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
+            .scrollDismissesKeyboard(.interactively)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(backgroundColor.ignoresSafeArea())
         }
     }
+
+    #if canImport(Supabase)
+    private var emailAuthSection: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Rectangle().fill(.white.opacity(0.18)).frame(height: 1)
+                Text("or")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.45))
+                Rectangle().fill(.white.opacity(0.18)).frame(height: 1)
+            }
+            .padding(.vertical, 4)
+
+            TextField("", text: $email, prompt: Text("email").foregroundStyle(.white.opacity(0.4)))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+                .background(emailFieldBackground)
+
+            ZStack(alignment: .trailing) {
+                Group {
+                    if isPasswordVisible {
+                        TextField("", text: $password, prompt: Text("password").foregroundStyle(.white.opacity(0.4)))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } else {
+                        SecureField("", text: $password, prompt: Text("password").foregroundStyle(.white.opacity(0.4)))
+                    }
+                }
+                .textContentType(.password)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.trailing, 32)
+                .frame(height: 46)
+
+                Button {
+                    isPasswordVisible.toggle()
+                } label: {
+                    Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(width: 32, height: 46)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 6)
+            }
+            .background(emailFieldBackground)
+
+            if let emailAuthError {
+                Text(emailAuthError)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.red.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 2)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    onEmailSignIn(email, password)
+                } label: {
+                    Text(isEmailSigningIn ? "..." : "sign in")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(NeutralGlassButtonStyle())
+                .background(emailFieldBackground)
+                .disabled(isEmailSigningIn || email.isEmpty || password.isEmpty)
+
+                Button {
+                    onEmailSignUp(email, password)
+                } label: {
+                    Text(isEmailSigningIn ? "..." : "sign up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(NeutralGlassButtonStyle())
+                .background(emailFieldBackground)
+                .disabled(isEmailSigningIn || email.isEmpty || password.isEmpty)
+            }
+            .padding(.top, 2)
+        }
+        .padding(.top, 8)
+    }
+
+    private var emailFieldBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(.white.opacity(0.06))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(.white.opacity(0.2), lineWidth: 1)
+            )
+    }
+    #endif
 }
 
 private struct LiquidGlassSSOButton<Icon: View>: View {

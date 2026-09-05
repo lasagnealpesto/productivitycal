@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import UserNotifications
 import UIKit
+import WidgetKit
 
 extension Color {
     init(hex: UInt32, alpha: Double = 1.0) {
@@ -12,6 +13,13 @@ extension Color {
     }
 
     static let appAccent = Color(hex: 0xFF5C00)
+}
+
+extension Notification.Name {
+    /// Posted when the app is opened via the "productivitycal://log" deep link
+    /// (currently only the home screen widget's tap target), asking to jump to
+    /// the home tab so the user can log today's mood immediately.
+    static let productivitycalOpenLog = Notification.Name("productivitycal.openLog")
 }
 
 /// Storage shared with the (not-yet-added) home screen widget via an App Group.
@@ -88,16 +96,6 @@ struct ContentView: View {
 
     enum Tab: CaseIterable { case home, calendar, set }
 
-    private func stepTab(by delta: Int) {
-        let all = Tab.allCases
-        guard let currentIndex = all.firstIndex(of: selectedTab) else { return }
-        let newIndex = currentIndex + delta
-        guard all.indices.contains(newIndex) else { return }
-        withAnimation(.easeInOut(duration: 0.2)) {
-            selectedTab = all[newIndex]
-        }
-    }
-
     init(
         onLogout: @escaping () -> Void = {},
         onDeleteAccount: @escaping () -> Void = {}
@@ -144,17 +142,15 @@ struct ContentView: View {
         .toolbarBackground(palette.surface, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .preferredColorScheme(theme == .dark ? .dark : .light)
-        .gesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { value in
-                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                    if value.translation.width < -60 {
-                        stepTab(by: 1)
-                    } else if value.translation.width > 60 {
-                        stepTab(by: -1)
-                    }
-                }
-        )
+        .onReceive(NotificationCenter.default.publisher(for: .productivitycalOpenLog)) { _ in
+            selectedTab = .home
+        }
+        #if canImport(Supabase)
+        .task {
+            moodStore.onDayChanged = MoodSyncService.pushSingleDay
+            await MoodSyncService.syncNow(store: moodStore)
+        }
+        #endif
     }
 }
 
@@ -226,6 +222,11 @@ enum Mood: String, CaseIterable, Identifiable, Codable {
 final class MoodStore: ObservableObject {
     @Published private(set) var moods: [String: Mood] = [:]
 
+    /// Called after every local change (day key + new mood, `nil` if cleared)
+    /// so an external sync layer (see SupabaseSync.swift) can mirror it to
+    /// the signed-in account without MoodStore needing to know that exists.
+    var onDayChanged: ((String, Mood?) -> Void)?
+
     private let storageKey = "moodStore.v1"
     private let calendar = Calendar.current
 
@@ -246,19 +247,42 @@ final class MoodStore: ObservableObject {
         }
         save()
         DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
+        onDayChanged?(key, mood)
     }
 
-    /// Sets every day in `dates` that is today or earlier to `mood`, overwriting
-    /// any existing value. For quickly filling in a whole month at once.
-    func fillPastDays(_ dates: [Date], with mood: Mood) {
+    /// Sets every day in `dates` that is today or earlier to `mood` (`nil`
+    /// clears it back to blank), overwriting any existing value. For quickly
+    /// filling in — or wiping — a whole month at once.
+    func fillPastDays(_ dates: [Date], with mood: Mood?) {
         let today = calendar.startOfDay(for: Date())
         for date in dates {
             let day = calendar.startOfDay(for: date)
             guard day <= today else { continue }
-            moods[key(for: day)] = mood
+            let key = key(for: day)
+            if let mood {
+                moods[key] = mood
+            } else {
+                moods.removeValue(forKey: key)
+            }
+            onDayChanged?(key, mood)
         }
         save()
         DailyMoodNotificationScheduler.shared.refreshScheduledNotifications()
+    }
+
+    /// Fills in only the days missing locally with a remote value — local
+    /// always wins on conflicts, this never overwrites a value already set
+    /// on this device. Used to restore history after a reinstall or on a
+    /// new device signed into the same account.
+    func mergeRemote(_ remote: [String: Mood]) {
+        var changed = false
+        for (key, mood) in remote where moods[key] == nil {
+            moods[key] = mood
+            changed = true
+        }
+        if changed {
+            save()
+        }
     }
 
     private func countsTowardStreak(_ date: Date) -> Bool {
@@ -307,6 +331,11 @@ final class MoodStore: ObservableObject {
         let encoded = moods.mapValues { $0.rawValue }
         guard let data = try? JSONEncoder().encode(encoded) else { return }
         SharedStorage.defaults.set(data, forKey: storageKey)
+        // Every mutation path (setMood, fillPastDays, mergeRemote) funnels
+        // through here — without this, the widget only ever refreshed on its
+        // own schedule or after its own quick-log buttons, so logging a mood
+        // from inside the app left it showing a stale streak.
+        WidgetCenter.shared.reloadTimelines(ofKind: "EndarStreakWidget")
     }
 
     private static let keyFormatter: DateFormatter = {
@@ -325,10 +354,15 @@ final class DailyMoodNotificationScheduler {
     private let center = UNUserNotificationCenter.current()
     private let calendar = Calendar.current
     private let bodyText = "how was your day?"
-    private let reminderHour = 18
+    private let reminderHour = 19
+    private let reminderMinute = 30
     private let horizonDays = 21
     private let moodStorageKey = "moodStore.v1"
-    private let sixPMPrefix = "endar.daily.1800."
+    /// Prefix common to every reminder this scheduler owns, past and
+    /// present — matching on this (rather than baking the reminder time
+    /// into it) means a future time change still finds and clears out
+    /// notifications scheduled under the old time.
+    private let reminderIdPrefix = "endar.daily."
     private var hasConfigured = false
 
     private init() {}
@@ -369,7 +403,7 @@ final class DailyMoodNotificationScheduler {
 
                 let managedIds = requests
                     .map(\.identifier)
-                    .filter { $0.hasPrefix(self.sixPMPrefix) }
+                    .filter { $0.hasPrefix(self.reminderIdPrefix) }
                 if !managedIds.isEmpty {
                     self.center.removePendingNotificationRequests(withIdentifiers: managedIds)
                 }
@@ -388,13 +422,13 @@ final class DailyMoodNotificationScheduler {
 
             let isToday = calendar.isDate(day, inSameDayAs: now)
             if !isToday || !hasMoodSelected(on: day) {
-                scheduleNotification(hour: reminderHour, for: day, prefix: sixPMPrefix)
+                scheduleNotification(hour: reminderHour, minute: reminderMinute, for: day, prefix: reminderIdPrefix)
             }
         }
     }
 
-    private func scheduleNotification(hour: Int, for day: Date, prefix: String) {
-        guard let fireDate = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day) else { return }
+    private func scheduleNotification(hour: Int, minute: Int, for day: Date, prefix: String) {
+        guard let fireDate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) else { return }
         guard fireDate > Date() else { return }
 
         let content = UNMutableNotificationContent()
@@ -444,12 +478,27 @@ private struct HomeView: View {
     @State private var showConfirmAction = false
     @State private var pendingAccountAction: AccountAction?
     @State private var confirmingMood: Mood?
+    @State private var accountEmail: String?
+    @AppStorage("auth.provider.v1") private var authProviderRaw: String = ""
+
+    private var signInMethodLabel: String? {
+        switch authProviderRaw {
+        case "apple": return "signed in with Apple"
+        case "google": return "signed in with Google"
+        case "email": return "signed in with email"
+        default: return nil
+        }
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack {
-                    AccountActionsMenu(palette: palette) { action in
+                    AccountActionsMenu(
+                        palette: palette,
+                        email: accountEmail,
+                        signInMethod: signInMethodLabel
+                    ) { action in
                         pendingAccountAction = action
                         showConfirmAction = true
                     }
@@ -496,6 +545,11 @@ private struct HomeView: View {
             .padding(.top, 24)
             .padding(.bottom, 24)
             .background(BackgroundView(palette: palette))
+            #if canImport(Supabase)
+            .task {
+                accountEmail = await MoodSyncService.currentUserEmail()
+            }
+            #endif
             .alert(
                 pendingAccountAction?.confirmTitle ?? "confirm",
                 isPresented: $showConfirmAction,
@@ -535,9 +589,9 @@ private struct HomeView: View {
         case .workProductive:
             return "you killed it today"
         case .personallyProductive:
-            return "nice job — taking time for yourself does you good"
+            return "nice job, taking time for yourself does you good"
         case .notProductive:
-            return "you'll catch up tomorrow — i believe in you"
+            return "you'll catch up tomorrow, i believe in you"
         }
     }
 }
@@ -734,7 +788,11 @@ private struct CalendarView: View {
     @State private var selectedYear: Int
     @State private var selectedMonth: Int
     @State private var isShowingQuickFill = false
-    @State private var dragOffset: CGFloat = 0
+    /// Which edge the grid slides in from on the next month change — set
+    /// right before the month state changes so the `.id(monthStart)` swap
+    /// animates as a directional slide instead of a plain cut. Arrow taps
+    /// only; there is no drag/gesture behind this.
+    @State private var monthTransitionEdge: Edge = .trailing
 
     private let calendar = Calendar.current
 
@@ -776,192 +834,17 @@ private struct CalendarView: View {
             newYear -= 1
         }
 
-        selectedMonth = newMonth
-        selectedYear = newYear
-    }
-
-    /// Slides the current month out — continuing smoothly from wherever `dragOffset`
-    /// already is (e.g. mid-drag) — then swaps to the new month and slides it in
-    /// from the opposite side.
-    private func swipeToMonth(delta: Int) {
-        let exitDistance: CGFloat = 500
-        let exitOffset: CGFloat = delta > 0 ? -exitDistance : exitDistance
-
-        withAnimation(.easeIn(duration: 0.16)) {
-            dragOffset = exitOffset
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-            stepMonth(by: delta)
-            dragOffset = -exitOffset
-            withAnimation(.easeOut(duration: 0.24)) {
-                dragOffset = 0
-            }
+        withAnimation(.easeInOut(duration: 0.28)) {
+            monthTransitionEdge = delta > 0 ? .trailing : .leading
+            selectedMonth = newMonth
+            selectedYear = newYear
         }
     }
 
-    private var weekdaySymbols: [String] {
-        let formatter = DateFormatter()
-        formatter.locale = Locale.current
-        let base = formatter.veryShortWeekdaySymbols.map { $0.lowercased() }
-        guard !base.isEmpty else { return ["m", "t", "w", "t", "f", "s", "s"] }
-        let shift = max(calendar.firstWeekday - 1, 0)
-        return Array(base[shift...] + base[..<shift])
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Spacer()
-
-                        ThemeToggle(themeRaw: $themeRaw, palette: palette)
-                    }
-
-                    Menu {
-                        ForEach(yearOptions, id: \.self) { year in
-                            Button {
-                                selectedYear = year
-                            } label: {
-                                if year == selectedYear {
-                                    Label(String(year), systemImage: "checkmark")
-                                } else {
-                                    Text(String(year))
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(verbatim: String(selectedYear))
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(palette.textPrimary)
-
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(palette.surface)
-                        )
-                    }
-                    .accessibilityLabel("select year")
-
-                    HStack(spacing: 16) {
-                        Button {
-                            swipeToMonth(delta: -1)
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(palette.textPrimary)
-                                .frame(width: 34, height: 34)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(palette.surface)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("previous month")
-
-                        Text(selectedMonthName)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(palette.textPrimary)
-                            .frame(minWidth: 110)
-                            .multilineTextAlignment(.center)
-
-                        Button {
-                            swipeToMonth(delta: 1)
-                        } label: {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(palette.textPrimary)
-                                .frame(width: 34, height: 34)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(palette.surface)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("next month")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-                    calendarGrid
-                        .offset(x: dragOffset)
-                        .clipped()
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(minimumDistance: 8)
-                                .onChanged { value in
-                                    dragOffset = value.translation.width
-                                }
-                                .onEnded { value in
-                                    let threshold: CGFloat = 50
-                                    if value.translation.width < -threshold {
-                                        swipeToMonth(delta: 1)
-                                    } else if value.translation.width > threshold {
-                                        swipeToMonth(delta: -1)
-                                    } else {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                                            dragOffset = 0
-                                        }
-                                    }
-                                }
-                        )
-
-                    legendRow
-
-                    Text("fell behind? catch up on your year — tap any day to fill it in, or leave it blank.")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(palette.textSecondary)
-
-                    Button {
-                        isShowingQuickFill = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "wand.and.stars")
-                            Text("quick fill this month")
-                        }
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(palette.textPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(palette.surface)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(palette.border, lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $isShowingQuickFill) {
-                        MoodColorPicker(palette: palette, includeBlank: false) { picked in
-                            if let picked {
-                                Haptics.light()
-                                moodStore.fillPastDays(monthDates, with: picked)
-                            }
-                            isShowingQuickFill = false
-                        }
-                        .presentationCompactAdaptation(.popover)
-                    }
-
-                    Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 24)
-            .padding(.bottom, 24)
-            .background(BackgroundView(palette: palette))
-        }
-    }
-
-    private var monthDates: [Date] {
-        guard let dayRange = calendar.range(of: .day, in: .month, for: monthStart) else { return [] }
-        return dayRange.compactMap { day in
-            calendar.date(byAdding: .day, value: day - 1, to: monthStart)
+    private func jumpToYear(_ year: Int) {
+        withAnimation(.easeInOut(duration: 0.28)) {
+            monthTransitionEdge = year > selectedYear ? .trailing : .leading
+            selectedYear = year
         }
     }
 
@@ -984,6 +867,10 @@ private struct CalendarView: View {
         return cells
     }
 
+    /// A plain, static grid for the selected month — no drag, no carousel.
+    /// Month changes only via the arrow buttons (`stepMonth`), with a quick
+    /// cross-fade tied to `selectedMonth`/`selectedYear` for a bit of
+    /// polish, nothing gesture-based.
     private var calendarGrid: some View {
         VStack(spacing: 10) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
@@ -1023,6 +910,153 @@ private struct CalendarView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(palette.border, lineWidth: 1)
         )
+        .id(monthStart)
+        .transition(.asymmetric(
+            insertion: .move(edge: monthTransitionEdge).combined(with: .opacity),
+            removal: .move(edge: monthTransitionEdge == .trailing ? .leading : .trailing).combined(with: .opacity)
+        ))
+    }
+
+    private var weekdaySymbols: [String] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        let base = formatter.veryShortWeekdaySymbols.map { $0.lowercased() }
+        guard !base.isEmpty else { return ["m", "t", "w", "t", "f", "s", "s"] }
+        let shift = max(calendar.firstWeekday - 1, 0)
+        return Array(base[shift...] + base[..<shift])
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Spacer()
+
+                        ThemeToggle(themeRaw: $themeRaw, palette: palette)
+                    }
+
+                    Menu {
+                        ForEach(yearOptions, id: \.self) { year in
+                            Button {
+                                jumpToYear(year)
+                            } label: {
+                                if year == selectedYear {
+                                    Label(String(year), systemImage: "checkmark")
+                                } else {
+                                    Text(String(year))
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(verbatim: String(selectedYear))
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(palette.textPrimary)
+
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(palette.surface)
+                        )
+                    }
+                    .accessibilityLabel("select year")
+
+                    HStack(spacing: 16) {
+                        Button {
+                            stepMonth(by: -1)
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(palette.textPrimary)
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(palette.surface)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("previous month")
+
+                        Text(selectedMonthName)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(palette.textPrimary)
+                            .frame(minWidth: 110)
+                            .multilineTextAlignment(.center)
+
+                        Button {
+                            stepMonth(by: 1)
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(palette.textPrimary)
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(palette.surface)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("next month")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                    calendarGrid
+
+                    legendRow
+
+                    Text("fell behind? catch up on your year: tap a day to cycle through work, personal, not, blank.")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(palette.textSecondary)
+
+                    Button {
+                        isShowingQuickFill = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "wand.and.stars")
+                            Text("quick fill this month")
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(palette.textPrimary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(palette.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(palette.border, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $isShowingQuickFill) {
+                        MoodColorPicker(palette: palette) { picked in
+                            Haptics.light()
+                            moodStore.fillPastDays(monthDates, with: picked)
+                            isShowingQuickFill = false
+                        }
+                        .presentationCompactAdaptation(.popover)
+                    }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 24)
+            .padding(.bottom, 24)
+            }
+            .background(BackgroundView(palette: palette))
+        }
+    }
+
+    private var monthDates: [Date] {
+        guard let dayRange = calendar.range(of: .day, in: .month, for: monthStart) else { return [] }
+        return dayRange.compactMap { day in
+            calendar.date(byAdding: .day, value: day - 1, to: monthStart)
+        }
     }
 
     private var legendRow: some View {
@@ -1049,15 +1083,26 @@ private struct CalendarDayCell: View {
     let isDisabled: Bool
     let onSelect: (Mood?) -> Void
 
-    @State private var isShowingPicker = false
-
     private var dayNumber: String {
         String(Calendar.current.component(.day, from: date))
     }
 
+    /// blank → work → personal → not → blank. A tap advances one step with
+    /// no popover in the way, so catching up on several past days is just a
+    /// quick string of taps instead of a tap-then-wait-then-pick each time.
+    private var nextMoodInCycle: Mood? {
+        switch mood {
+        case nil: return .workProductive
+        case .workProductive: return .personallyProductive
+        case .personallyProductive: return .notProductive
+        case .notProductive: return nil
+        }
+    }
+
     var body: some View {
         Button {
-            isShowingPicker = true
+            Haptics.light()
+            onSelect(nextMoodInCycle)
         } label: {
             Text(dayNumber)
                 .font(.system(size: 13, weight: .semibold))
@@ -1077,14 +1122,7 @@ private struct CalendarDayCell: View {
         .disabled(isDisabled)
         .accessibilityLabel("day \(dayNumber)")
         .accessibilityValue(mood?.title ?? "blank")
-        .popover(isPresented: $isShowingPicker) {
-            MoodColorPicker(palette: palette) { picked in
-                Haptics.light()
-                onSelect(picked)
-                isShowingPicker = false
-            }
-            .presentationCompactAdaptation(.popover)
-        }
+        .accessibilityHint("tap to cycle to the next status")
     }
 }
 
@@ -1178,10 +1216,22 @@ private struct ThemeToggle: View {
 
 private struct AccountActionsMenu: View {
     let palette: AppPalette
+    let email: String?
+    let signInMethod: String?
     let onSelect: (AccountAction) -> Void
 
     var body: some View {
         Menu {
+            if email != nil || signInMethod != nil {
+                Section {
+                    if let email {
+                        Text(email)
+                    }
+                    if let signInMethod {
+                        Text(signInMethod)
+                    }
+                }
+            }
             Button("logout") {
                 onSelect(.logout)
             }
@@ -1243,6 +1293,17 @@ private enum WallpaperDotShapeOption: String, CaseIterable, Identifiable {
     }
 }
 
+private enum WallpaperBackgroundOption: String, CaseIterable, Identifiable {
+    case dark
+    case light
+
+    var id: String { rawValue }
+
+    static func fromStorage(_ raw: String) -> WallpaperBackgroundOption {
+        raw.lowercased() == "light" ? .light : .dark
+    }
+}
+
 enum WallpaperSetupStepContent {
     case screenshot(imageName: String)
     case completion
@@ -1257,20 +1318,7 @@ enum WallpaperSetupGuideContent {
     /// Drop the 12 annotated screenshot files into endar/screenshots with these exact
     /// names (in this order) to complete the tutorial — no other code change needed.
     static let steps: [WallpaperSetupStep] = {
-        let imageNames = [
-            "wallpaper-setup-01.png",
-            "wallpaper-setup-02.png",
-            "wallpaper-setup-03.png",
-            "wallpaper-setup-04.png",
-            "wallpaper-setup-05.png",
-            "wallpaper-setup-06.png",
-            "wallpaper-setup-07.png",
-            "wallpaper-setup-08.png",
-            "wallpaper-setup-09.png",
-            "wallpaper-setup-10.png",
-            "wallpaper-setup-11.png",
-            "wallpaper-setup-12.png"
-        ]
+        let imageNames = (1...12).map { String(format: "wallpaper-setup-%02d.png", $0) }
 
         var steps = imageNames.enumerated().map { index, name in
             WallpaperSetupStep(id: index, content: .screenshot(imageName: name))
@@ -1370,13 +1418,16 @@ private struct SetView: View {
     @AppStorage("wallpaper.device.v1") private var wallpaperDeviceRaw: String = iPhoneModel.iphone17.storageValue
     @AppStorage("wallpaper.device.userSelected.v1") private var wallpaperDeviceUserSelected = false
     @AppStorage("wallpaper.dotShape.v1") private var wallpaperDotShapeRaw: String = WallpaperDotShapeOption.squircle.rawValue
+    @AppStorage("wallpaper.background.v1") private var wallpaperBackgroundRaw: String = WallpaperBackgroundOption.dark.rawValue
     @Binding var themeRaw: String
 
     let palette: AppPalette
 
     @State private var model: iPhoneModel = .iphone17
     @State private var dotShape: WallpaperDotShapeOption = .squircle
+    @State private var backgroundStyle: WallpaperBackgroundOption = .dark
     @State private var showWallpaperGuide = false
+    @State private var showFeedbackSheet = false
     @State private var shareURL: URL?
     @State private var shareImage: UIImage?
 
@@ -1386,6 +1437,7 @@ private struct SetView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     Spacer()
@@ -1393,14 +1445,14 @@ private struct SetView: View {
                     ThemeToggle(themeRaw: $themeRaw, palette: palette)
                 }
 
+                wallpaperPreview
                 wallpaperModelSelection
                 wallpaperControls
-
-                Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
             .padding(.top, 24)
             .padding(.bottom, 24)
+            }
             .background(BackgroundView(palette: palette))
         }
         .onAppear {
@@ -1415,6 +1467,7 @@ private struct SetView: View {
             }
 
             dotShape = WallpaperDotShapeOption.fromStorage(wallpaperDotShapeRaw)
+            backgroundStyle = WallpaperBackgroundOption.fromStorage(wallpaperBackgroundRaw)
             refreshShareImage()
         }
         .onChange(of: model) { _, newValue in
@@ -1425,8 +1478,15 @@ private struct SetView: View {
             wallpaperDotShapeRaw = newValue.rawValue
             refreshShareImage()
         }
+        .onChange(of: backgroundStyle) { _, newValue in
+            wallpaperBackgroundRaw = newValue.rawValue
+            refreshShareImage()
+        }
         .sheet(isPresented: $showWallpaperGuide) {
             WallpaperAutomationGuideView()
+        }
+        .sheet(isPresented: $showFeedbackSheet) {
+            FeedbackView(palette: palette)
         }
     }
 
@@ -1445,6 +1505,42 @@ private struct SetView: View {
         } catch {
             shareURL = nil
             shareImage = nil
+        }
+    }
+
+    @ViewBuilder
+    private var wallpaperPreview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("preview")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(palette.textSecondary)
+
+            HStack {
+                Spacer(minLength: 0)
+
+                Group {
+                    if let shareImage {
+                        Image(uiImage: shareImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(height: 320)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(palette.border, lineWidth: 1)
+                )
+
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(palette.surface)
+            )
         }
     }
 
@@ -1487,6 +1583,50 @@ private struct SetView: View {
 
     @ViewBuilder
     private var wallpaperControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("wallpaper background")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(palette.textSecondary)
+
+            if #available(iOS 26.0, *) {
+                GlassEffectContainer(spacing: 22) {
+                    HStack(spacing: 12) {
+                        ForEach(WallpaperBackgroundOption.allCases) { option in
+                            Button {
+                                backgroundStyle = option
+                            } label: {
+                                WallpaperBackgroundChip(
+                                    option: option,
+                                    isSelected: backgroundStyle == option,
+                                    palette: palette,
+                                    isLightTheme: theme == .light
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    ForEach(WallpaperBackgroundOption.allCases) { option in
+                        Button {
+                            backgroundStyle = option
+                        } label: {
+                            WallpaperBackgroundChip(
+                                option: option,
+                                isSelected: backgroundStyle == option,
+                                palette: palette,
+                                isLightTheme: theme == .light
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                    }
+                }
+            }
+        }
+
         VStack(alignment: .leading, spacing: 10) {
             Text("dot style")
                 .font(.system(size: 14, weight: .semibold))
@@ -1571,6 +1711,160 @@ private struct SetView: View {
             }
             .simultaneousGesture(TapGesture().onEnded { Haptics.light() })
         }
+
+        Button {
+            Haptics.light()
+            showFeedbackSheet = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "bubble.left.and.exclamationmark.bubble.right")
+                Text("send feedback")
+            }
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(palette.textPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(palette.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(palette.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct FeedbackView: View {
+    @Environment(\.dismiss) private var dismiss
+    let palette: AppPalette
+
+    @State private var message = ""
+    @State private var isSending = false
+    @State private var errorMessage: String?
+    @State private var didSend = false
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    private var isMessageEmpty: Bool {
+        message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                if didSend {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 44, weight: .bold))
+                            .foregroundStyle(palette.textPrimary)
+                        Text("thanks, got it")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(palette.textPrimary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    Spacer()
+                } else {
+                    Text("what's not working, or what would make this better?")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(palette.textSecondary)
+
+                    TextEditor(text: $message)
+                        .font(.system(size: 16))
+                        .foregroundStyle(palette.textPrimary)
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .frame(minHeight: 160)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(palette.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(palette.border, lineWidth: 1)
+                        )
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color(hex: 0xEB5757))
+                    }
+
+                    Button {
+                        send()
+                    } label: {
+                        Group {
+                            if isSending {
+                                ProgressView()
+                                    .tint(palette.background)
+                            } else {
+                                Text("send")
+                            }
+                        }
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(palette.background)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(palette.textPrimary)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isMessageEmpty || isSending)
+                    .opacity(isMessageEmpty ? 0.5 : 1)
+
+                    Spacer()
+                }
+            }
+            .padding(20)
+            .background(BackgroundView(palette: palette))
+            .navigationTitle("send feedback")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("close") { dismiss() }
+                        .foregroundStyle(palette.textPrimary)
+                }
+            }
+        }
+    }
+
+    private func send() {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isSending = true
+        errorMessage = nil
+
+        #if canImport(Supabase)
+        Task {
+            do {
+                try await MoodSyncService.submitFeedback(message: trimmed, appVersion: appVersion)
+                await MainActor.run {
+                    isSending = false
+                    Haptics.success()
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        didSend = true
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                await MainActor.run { dismiss() }
+            } catch {
+                await MainActor.run {
+                    isSending = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+        #else
+        isSending = false
+        errorMessage = "feedback isn't available in this build."
+        #endif
     }
 }
 
@@ -1590,7 +1884,7 @@ private struct WallpaperSetupStepCard: View {
                     .font(.system(size: 56, weight: .bold))
                     .foregroundStyle(palette.textPrimary)
 
-                Text("you're all set — now you can start having your life under control.")
+                Text("you're all set. now you can start taking control of your life.")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(palette.textPrimary)
                     .multilineTextAlignment(.center)
@@ -1753,6 +2047,63 @@ private struct DotStyleChip: View {
             }
         }
         .frame(width: 12, height: 12)
+    }
+}
+
+private struct WallpaperBackgroundChip: View {
+    let option: WallpaperBackgroundOption
+    let isSelected: Bool
+    let palette: AppPalette
+    let isLightTheme: Bool
+
+    private var swatchColor: Color {
+        option == .light ? Color(hex: 0xF5F5F5) : Color(hex: 0x333333)
+    }
+
+    var body: some View {
+        let selectedStroke = isLightTheme ? Color.black.opacity(0.52) : Color.white.opacity(0.82)
+        let unselectedStroke = isLightTheme ? Color.black.opacity(0.20) : palette.border.opacity(0.95)
+        let selectedTint = isLightTheme ? Color.black.opacity(0.07) : Color.white.opacity(0.08)
+        let unselectedTint = isLightTheme ? Color.black.opacity(0.025) : Color.white.opacity(0.03)
+
+        let base = VStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(swatchColor)
+                .frame(height: 32)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.black.opacity(0.14), lineWidth: 1)
+                )
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+
+            Text(option.rawValue)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(palette.textPrimary)
+                .padding(.bottom, 10)
+        }
+        .frame(maxWidth: .infinity)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(
+                    isSelected ? selectedStroke : unselectedStroke,
+                    lineWidth: isSelected ? 1.8 : 1.1
+                )
+        )
+
+        if #available(iOS 26.0, *) {
+            base
+                .glassEffect(
+                    .regular.tint(isSelected ? selectedTint : unselectedTint),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                )
+        } else {
+            base
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                )
+        }
     }
 }
 

@@ -14,16 +14,39 @@ import UIKit
 struct WallpaperAutomationGuideView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedWallpaperSetupStep = 0
+    @State private var stepPulse = false
 
     // Always matches the dark background baked into the tutorial screenshots,
     // regardless of the user's light/dark theme setting.
     private let palette = AppTheme.dark.palette
+
+    /// One motivating line per screenshot step, framing the mechanical
+    /// instruction baked into the photo as progress toward a bigger goal.
+    /// Index-aligned with `WallpaperSetupGuideContent.steps` (the completion
+    /// step has no entry, it has its own message already).
+    private static let stepCaptions: [String] = [
+        "two minutes, and this runs itself from now on.",
+        "let's build the routine that keeps you consistent.",
+        "pick when it happens, then forget about it.",
+        "your daily nudge, set once.",
+        "so it runs with zero taps, every time.",
+        "now let's connect productivitycal to your lock screen.",
+        "this pulls your progress straight from the app.",
+        "and this puts it right where you'll see it.",
+        "two actions, working together automatically.",
+        "this is the part that matters most.",
+        "just double check this one detail.",
+        "save it, and you're one tap from a life you can see."
+    ]
 
     private var steps: [WallpaperSetupStep] { WallpaperSetupGuideContent.steps }
     private var isOnLastStep: Bool { selectedWallpaperSetupStep == steps.count - 1 }
     private var progress: Double {
         guard steps.count > 1 else { return 1 }
         return Double(selectedWallpaperSetupStep + 1) / Double(steps.count)
+    }
+    private var currentCaption: String? {
+        Self.stepCaptions.indices.contains(selectedWallpaperSetupStep) ? Self.stepCaptions[selectedWallpaperSetupStep] : nil
     }
 
     var body: some View {
@@ -49,11 +72,22 @@ struct WallpaperAutomationGuideView: View {
                     .ignoresSafeArea()
             )
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 14) {
+                VStack(spacing: 10) {
                     Text("step \(selectedWallpaperSetupStep + 1) of \(steps.count)")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(palette.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .center)
+                        .scaleEffect(stepPulse ? 1.06 : 1.0)
+
+                    if let currentCaption {
+                        Text(currentCaption)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(palette.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .id(selectedWallpaperSetupStep)
+                            .transition(.opacity.combined(with: .move(edge: .trailing)))
+                    }
 
                     ZStack(alignment: .leading) {
                         Capsule()
@@ -64,7 +98,7 @@ struct WallpaperAutomationGuideView: View {
                             Capsule()
                                 .fill(palette.textPrimary)
                                 .frame(width: proxy.size.width * progress, height: 6)
-                                .animation(.easeOut(duration: 0.25), value: progress)
+                                .animation(.easeOut(duration: 0.2), value: progress)
                         }
                         .frame(height: 6)
                     }
@@ -107,11 +141,23 @@ struct WallpaperAutomationGuideView: View {
                         .opacity(0.96)
                         .ignoresSafeArea(edges: .bottom)
                 )
+                .animation(.easeInOut(duration: 0.22), value: selectedWallpaperSetupStep)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("close") { dismiss() }
                         .foregroundColor(palette.textPrimary)
+                }
+            }
+            .onChange(of: selectedWallpaperSetupStep) { _, _ in
+                Haptics.light()
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.5)) {
+                    stepPulse = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+                    withAnimation(.spring(response: 0.26, dampingFraction: 0.65)) {
+                        stepPulse = false
+                    }
                 }
             }
         }
@@ -369,6 +415,16 @@ private enum WallpaperDotShapeStyle: String {
     }
 }
 
+private enum WallpaperBackgroundStyle: String {
+    case dark
+    case light
+
+    static func loadFromSettings() -> WallpaperBackgroundStyle {
+        let raw = (UserDefaults.standard.string(forKey: "wallpaper.background.v1") ?? "dark").lowercased()
+        return raw == "light" ? .light : .dark
+    }
+}
+
 private struct WallpaperPeriodSummary {
     let columns: Int
     let spacingRatio: CGFloat
@@ -455,8 +511,19 @@ private enum WallpaperImageRenderer {
             let w = canvasSize.width
             let h = canvasSize.height
             let dotShapeStyle = WallpaperDotShapeStyle.loadFromSettings()
+            let backgroundStyle = WallpaperBackgroundStyle.loadFromSettings()
+            let isLightBackground = backgroundStyle == .light
 
-            let backgroundColor = UIColor(red: 0x33 / 255.0, green: 0x33 / 255.0, blue: 0x33 / 255.0, alpha: 1.0)
+            // On a light background, every "ink" color (dots, labels, progress
+            // bar) flips from white-on-dark to black-on-light, at the same
+            // opacities, so contrast stays consistent between the two.
+            func ink(_ opacity: CGFloat) -> UIColor {
+                isLightBackground ? UIColor.black.withAlphaComponent(opacity) : UIColor.white.withAlphaComponent(opacity)
+            }
+
+            let backgroundColor = isLightBackground
+                ? UIColor(red: 0xF5 / 255.0, green: 0xF5 / 255.0, blue: 0xF5 / 255.0, alpha: 1.0)
+                : UIColor(red: 0x33 / 255.0, green: 0x33 / 255.0, blue: 0x33 / 255.0, alpha: 1.0)
             cg.setFillColor(backgroundColor.cgColor)
             cg.fill(CGRect(x: 0, y: 0, width: w, height: h))
 
@@ -504,10 +571,10 @@ private enum WallpaperImageRenderer {
                 let rect = CGRect(x: x, y: y, width: dot, height: dot)
 
                 let fill: UIColor = {
-                    guard let date else { return UIColor.white.withAlphaComponent(0.08) }
+                    guard let date else { return ink(0.08) }
                     if let mood = moodData.mood(for: date) { return moodUIColor(mood) }
-                    if date < todayStart { return UIColor.white.withAlphaComponent(0.88) }
-                    return UIColor.white.withAlphaComponent(0.26)
+                    if date < todayStart { return ink(0.88) }
+                    return ink(0.26)
                 }()
 
                 cg.setFillColor(fill.cgColor)
@@ -538,7 +605,7 @@ private enum WallpaperImageRenderer {
             ]
             let rightAttr: [NSAttributedString.Key: Any] = [
                 .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.62)
+                .foregroundColor: ink(0.62)
             ]
 
             let leftSize = (leftText as NSString).size(withAttributes: leftAttr)
@@ -557,11 +624,11 @@ private enum WallpaperImageRenderer {
             let bgRect = CGRect(x: barX, y: barY, width: barW, height: barH)
             let fgRect = CGRect(x: barX, y: barY, width: max(barH * 1.4, barW * summary.progress), height: barH)
 
-            cg.setFillColor(UIColor.white.withAlphaComponent(0.22).cgColor)
+            cg.setFillColor(ink(0.22).cgColor)
             cg.addPath(UIBezierPath(roundedRect: bgRect, cornerRadius: barH / 2).cgPath)
             cg.fillPath()
 
-            cg.setFillColor(UIColor.white.withAlphaComponent(0.92).cgColor)
+            cg.setFillColor(ink(0.92).cgColor)
             cg.addPath(UIBezierPath(roundedRect: fgRect, cornerRadius: barH / 2).cgPath)
             cg.fillPath()
         }

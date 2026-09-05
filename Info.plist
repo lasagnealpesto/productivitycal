@@ -26,6 +26,14 @@
 				<string>com.googleusercontent.apps.12610556593-uguka7hb3jv24d5qoldke13bf9estdqd</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.productivitycal.productivitycal.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>productivitycal</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
